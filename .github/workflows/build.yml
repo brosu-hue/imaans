@@ -80,21 +80,40 @@ jobs:
           gh release upload apk-latest out/InkSign.apk --repo "$GITHUB_REPOSITORY" --clobber
           echo "APK: https://github.com/$GITHUB_REPOSITORY/releases/download/apk-latest/InkSign.apk" >> "$GITHUB_STEP_SUMMARY"
 
+  # Publishing the website needs Pages switched on once by a repository admin
+  # (Settings -> Pages -> Source: GitHub Actions). The build token is not
+  # allowed to do that itself, so this job explains rather than fails the run.
   site:
     needs: test
     if: github.event_name != 'pull_request'
+    continue-on-error: true
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-        with:
-          # Switches Pages on the first time, so there is no setting to go and find.
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
+      - id: pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
+      - if: steps.pages.outcome != 'success'
+        run: |
+          {
+            echo "### The website was not published"
+            echo ""
+            echo "GitHub Pages is not switched on for this repository yet, and the build"
+            echo "token is not allowed to switch it on."
+            echo ""
+            echo "Go to **Settings -> Pages**, set **Source** to **GitHub Actions**, then"
+            echo "re-run this workflow. After that the app is live at:"
+            echo ""
+            echo "https://$(echo "$GITHUB_REPOSITORY" | cut -d/ -f1).github.io/$(echo "$GITHUB_REPOSITORY" | cut -d/ -f2)/"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+      - if: steps.pages.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: www
       - id: deploy
+        if: steps.pages.outcome == 'success'
         uses: actions/deploy-pages@v4
