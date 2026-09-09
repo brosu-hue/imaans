@@ -13,10 +13,8 @@ the Android app does not even ask for internet permission.
 1. Open **https://brosu-hue.github.io/imaans/** in Safari.
 2. Tap the Share button at the bottom, then **Add to Home Screen**.
 
-It then opens like a normal app and keeps working with no signal.
-
-> **One-time setup:** in this repository go to **Settings → Pages** and set **Source** to
-> **GitHub Actions**. The address above starts working a minute after that.
+It then opens like a normal app and keeps working with no signal. The address goes live a
+minute or two after the first successful build — nothing to switch on by hand.
 
 ## Installing it on Android
 

@@ -62,6 +62,12 @@ androidComponents {
 }
 
 dependencies {
+    // The AndroidX libraries below pull in mismatched Kotlin standard library
+    // versions. Since Kotlin 1.8 the -jdk7 and -jdk8 artifacts were folded into
+    // the main one, so an older -jdk8 alongside a newer stdlib means the same
+    // classes twice and the build fails. The BOM pins them all to one version.
+    implementation platform('org.jetbrains.kotlin:kotlin-bom:1.9.24')
+
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.webkit:webkit:1.12.1'
     implementation 'androidx.core:core:1.13.1'
