@@ -1,23 +1,13 @@
 # InkSign
 
-Draw your signature once. Open a document. Tap **Sign all lines** and it goes on every
-signature line at once. Save the result as a normal PDF you can email or WhatsApp.
+An Android app. Draw your signature once. Open one document or several. Tap **Sign all
+lines** and it goes on every signature line at once. Save the result as a normal PDF you can
+email or WhatsApp. It can also split a PDF into separate files.
 
 Everything happens on the phone. Documents and signatures are never uploaded anywhere —
 the Android app does not even ask for internet permission.
 
 ---
-
-## Using it on your iPhone
-
-1. Open **https://brosu-hue.github.io/imaans/** in Safari.
-2. Tap the Share button at the bottom, then **Add to Home Screen**.
-
-It then opens like a normal app and keeps working with no signal.
-
-> **One-time setup, and only you can do it:** go to **Settings → Pages** in this repository
-> and set **Source** to **GitHub Actions**. GitHub does not let an automated build switch
-> Pages on by itself. Re-run the workflow afterwards and the address above goes live.
 
 ## Installing it on Android
 
@@ -56,9 +46,9 @@ fill in today's date as well.
 **Adjust anything** — drag a signature to move it, use the blue dot to resize, or *Remove* it.
 *Place one* drops a signature wherever you want if the form has no printed line.
 
-**Save** — produces a normal PDF with the signature part of the page. On Android it lands in
-your Downloads folder and offers to send it on; on iPhone the share sheet opens so you can
-save it to Files or send it straight to someone.
+**Save** — produces a normal PDF with the signature part of the page. It lands in your
+Downloads folder and offers to send it on. Several documents can be saved as one combined
+file or one file each.
 
 ---
 
@@ -66,10 +56,10 @@ save it to Files or send it straight to someone.
 
 | Folder | What it is |
 |---|---|
-| `www/` | The whole app: plain HTML, CSS and JavaScript, no build step. This is what the website serves **and** what is bundled inside the APK, so the two can never drift apart. |
+| `www/` | The whole app: plain HTML, CSS and JavaScript, no build step. It is bundled into the APK at build time, so there is no second copy to keep in sync. |
 | `android/` | A thin native wrapper that shows `www/` in a WebView and adds the Android bits: the file picker, saving to Downloads, the share sheet, and the Back key. |
 | `test/` | The end-to-end test suite — it drives the real app in a real browser at phone size. |
-| `.github/workflows/` | Runs the tests, then builds the APK and publishes the website. Nothing is published unless the tests pass. |
+| `.github/workflows/` | Runs the tests, then builds the APK. Nothing is published unless the tests pass. |
 
 Inside `www/`:
 
