@@ -78,10 +78,39 @@ async function lockedCopy() {
   fs.writeFileSync(path.join(OUT, 'locked.pdf'), await d.save({ useObjectStreams: false }));
 }
 
+
+/* A document long enough that keeping every page bitmap alive is a real
+   problem: at roughly 2.85MB per rendered page, 40 pages is over 100MB if
+   nothing is ever released, which is where a phone starts handing back blank
+   canvases instead of failing honestly. */
+async function longDocument() {
+  const d = await PDFDocument.create();
+  const f = await d.embedFont(StandardFonts.Helvetica);
+  const b = await d.embedFont(StandardFonts.HelveticaBold);
+
+  for (let i = 1; i <= 40; i++) {
+    const p = d.addPage([595, 842]);
+    p.drawText('SCHEDULE ' + i, { x: 60, y: 780, size: 18, font: b, color: rgb(.05,.05,.05) });
+    // Enough text that rendering costs something realistic.
+    for (let line = 0; line < 26; line++) {
+      p.drawText('Item ' + (line + 1) + ' supplied under the terms of the agreement dated above.',
+        { x: 60, y: 730 - line * 22, size: 10, font: f, color: rgb(.1,.1,.1) });
+    }
+    // One signing line, on the last page only, so detection has something real
+    // to find at the far end of a long scroll.
+    if (i === 40) {
+      p.drawLine({ start: { x: 60, y: 150 }, end: { x: 290, y: 150 }, thickness: 1, color: rgb(.1,.1,.1) });
+      p.drawText('Signature', { x: 60, y: 135, size: 9, font: f, color: rgb(.1,.1,.1) });
+    }
+  }
+  fs.writeFileSync(path.join(OUT, 'long.pdf'), await d.save({ useObjectStreams: false }));
+}
+
 (async () => {
   await agreement();
   await rotated();
   await protectedCopy();
   await lockedCopy();
+  await longDocument();
   console.log('fixtures written to', OUT);
 })();
