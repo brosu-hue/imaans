@@ -25,6 +25,7 @@ export class SignDoc {
     this.name = 'document';
     this.dirty = false;          // true once there is unsaved ink on the page
     this.onSelect = () => {};
+    this.onTap = () => {};
     this._sel = null;
   }
 
@@ -161,26 +162,49 @@ export class SignDoc {
 
   /* ================= line detection ================= */
 
+  /** The signing lines on one page, worked out once and kept. */
+  async hitsFor(rec) {
+    if (rec.hits) return rec.hits;
+    await this.ensureRendered(rec);
+    rec.hits = detectSignatureLines(rec.canvas, rec.textItems).map(h => ({
+      id: nextId(),
+      page: rec.idx,
+      xPct: h.x / rec.canvas.width,
+      yPct: h.y / rec.canvas.height,
+      wPct: h.w / rec.canvas.width,
+      kind: h.kind,
+      score: h.score
+    }));
+    return rec.hits;
+  }
+
   /** Renders every page if needed, then finds the signing lines on each. */
   async findLines(onProgress) {
     const all = [];
     for (let i = 0; i < this.pages.length; i++) {
-      const rec = this.pages[i];
       if (onProgress) onProgress(i + 1, this.pages.length);
-      await this.ensureRendered(rec);
-      rec.hits = detectSignatureLines(rec.canvas, rec.textItems).map(h => ({
-        id: nextId(),
-        page: i,
-        xPct: h.x / rec.canvas.width,
-        yPct: h.y / rec.canvas.height,
-        wPct: h.w / rec.canvas.width,
-        kind: h.kind,
-        score: h.score
-      }));
-      all.push.apply(all, rec.hits);
+      all.push.apply(all, await this.hitsFor(this.pages[i]));
       await frame();
     }
     return all;
+  }
+
+  /**
+   * The signing line a tap was aiming at, if there is one.
+   * The window reaches further above the line than below it, because that is
+   * where a signature goes and so where people aim.
+   */
+  lineNear(rec, xPct, yPct) {
+    if (!rec.hits) return null;
+    let best = null, bestGap = Infinity;
+    for (const h of rec.hits) {
+      const above = h.yPct - yPct;               // positive when the tap is above the line
+      if (above < -0.018 || above > 0.055) continue;
+      if (xPct < h.xPct - 0.03 || xPct > h.xPct + h.wPct + 0.03) continue;
+      const gap = Math.abs(above);
+      if (gap < bestGap) { bestGap = gap; best = h; }
+    }
+    return best;
   }
 
   showHits(hits, selectedIds, onToggle) {
@@ -263,6 +287,39 @@ export class SignDoc {
       wPct: hit.wPct * 0.9,
       hPct
     });
+  }
+
+  /**
+   * Places a stamp at a point on the page. The tap point acts as the line the
+   * stamp sits on, so a signature lands above it and slightly overlapping,
+   * exactly as it would on a printed rule.
+   */
+  placeAtPoint(spec, pageIdx, xPct, yPct) {
+    const rec = this.pages[pageIdx];
+    if (!rec) return null;
+    const u = pageUnit(rec);
+
+    let wPct, hPct, x;
+    if (spec.type === 'sig') {
+      const aspect = spec.w / spec.h;
+      const hUnits = 34 * u;
+      const wUnits = Math.min(hUnits * aspect, rec.baseW * 0.8);
+      hPct = (wUnits / aspect) / rec.baseH;
+      wPct = wUnits / rec.baseW;
+      x = xPct - wPct / 2;                       // centred on the finger
+    } else {
+      hPct = (11 * u) / rec.baseH;
+      wPct = 0.26;
+      x = xPct;                                  // text reads from the tap onwards
+    }
+
+    const lift = spec.type === 'sig' ? 0.84 : 1.15;
+    return this.addStamp(Object.assign({}, spec, {
+      page: pageIdx,
+      xPct: clamp(x, 0, 1 - wPct),
+      yPct: clamp(yPct - hPct * lift, 0, 1 - hPct),
+      wPct, hPct
+    }));
   }
 
   /** Drops a stamp in the middle of whichever page is on screen. */
@@ -385,9 +442,34 @@ export class SignDoc {
   /* ----- gestures ----- */
 
   _bindPage(rec) {
+    let sx = 0, sy = 0, t0 = 0, live = false;
+
     rec.layer.addEventListener('pointerdown', (e) => {
-      if (e.target === rec.layer) this.select(null);
+      live = e.target === rec.layer;             // not a stamp, not a review box
+      sx = e.clientX; sy = e.clientY; t0 = Date.now();
     });
+
+    rec.layer.addEventListener('pointerup', (e) => {
+      if (!live) return;
+      live = false;
+      // A scroll or a long press is not a tap.
+      if (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10) return;
+      if (Date.now() - t0 > 700) return;
+
+      if (this.selected) { this.select(null); return; }   // first tap just deselects
+
+      const r = rec.el.getBoundingClientRect();
+      if (!r.width || !r.height) return;
+      this.onTap({
+        page: rec.idx,
+        xPct: (e.clientX - r.left) / r.width,
+        yPct: (e.clientY - r.top) / r.height,
+        clientX: e.clientX,
+        clientY: e.clientY
+      });
+    });
+
+    rec.layer.addEventListener('pointercancel', () => { live = false; });
   }
 
   _bindStamp(st) {

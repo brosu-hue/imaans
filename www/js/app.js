@@ -66,6 +66,60 @@ function sheet(opts) {
   $('scrim').hidden = false;
   $('sheet').hidden = false;
 }
+/**
+ * A small menu at the point on the page that was tapped.
+ * Anchored to the finger rather than shown as a bottom sheet, so it stays
+ * obvious which spot on the page the choice applies to.
+ */
+function tapMenu(x, y, items) {
+  closeTapMenu();
+  const menu = document.createElement('div');
+  menu.className = 'tapmenu';
+
+  items.forEach(it => {
+    const b = document.createElement('button');
+    b.className = 'tapmenu-item' + (it.cls ? ' ' + it.cls : '');
+    b.innerHTML = '<span class="tapmenu-ico">' + it.icon + '</span>';
+    const label = document.createElement('span');
+    label.textContent = it.label;
+    b.appendChild(label);
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeTapMenu();
+      if (it.fn) it.fn();
+    });
+    menu.appendChild(b);
+  });
+
+  const scrim = document.createElement('div');
+  scrim.className = 'tapmenu-scrim';
+  scrim.addEventListener('pointerdown', (e) => { e.preventDefault(); closeTapMenu(); });
+
+  document.body.appendChild(scrim);
+  document.body.appendChild(menu);
+
+  // Sit next to the finger, flipping near an edge so it is never off screen.
+  const m = menu.getBoundingClientRect();
+  const pad = 10;
+  let left = x + 12;
+  let top = y + 12;
+  if (left + m.width > window.innerWidth - pad) left = x - m.width - 12;
+  if (left < pad) left = pad;
+  if (top + m.height > window.innerHeight - pad) top = y - m.height - 12;
+  if (top < pad) top = pad;
+  menu.style.left = Math.round(left) + 'px';
+  menu.style.top = Math.round(top) + 'px';
+
+  _tapMenu = menu;
+  _tapScrim = scrim;
+}
+
+let _tapMenu = null, _tapScrim = null;
+function closeTapMenu() {
+  if (_tapMenu) { _tapMenu.remove(); _tapMenu = null; }
+  if (_tapScrim) { _tapScrim.remove(); _tapScrim = null; }
+}
+
 function closeSheet() {
   $('sheet').hidden = true;
   $('scrim').hidden = true;
@@ -95,6 +149,7 @@ function leave(target) {
 }
 
 function discardDoc() {
+  closeTapMenu();
   if (doc) { doc.host.innerHTML = ''; doc = null; }
   $('selBar').hidden = true;
 }
@@ -236,14 +291,19 @@ async function openDocument(file) {
   try {
     doc = new SignDoc($('pages'));
     doc.onSelect = onStampSelected;
+    doc.onTap = onPageTapped;
     const n = await doc.load(file, (i, total) => busy('Opening page ' + i + ' of ' + total + '…'));
     $('docTitle').textContent = doc.name;
-    $('docFoot').textContent = n + (n === 1 ? ' page' : ' pages');
+    $('docFoot').textContent = n + (n === 1 ? ' page' : ' pages') +
+      ' · tap the page to add a signature';
     noteRecent(doc.name, n);
     renderHome();
     show('doc');
     $('docScroll').scrollTop = 0;
     doc.watchViewport($('docScroll'));
+    // Work out the first page's lines now, so the first tap can snap to one
+    // without the user waiting for it.
+    doc.hitsFor(doc.pages[0]).catch(() => {});
   } catch (err) {
     discardDoc();
     show('home');
@@ -263,6 +323,52 @@ async function openDocument(file) {
       actions: [{ label: 'Draw it now', cls: 'primary', fn: () => openPad('doc') }]
     });
   }
+}
+
+/* ================= placing by tapping ================= */
+
+/** Tapping the page is the main way to place something. */
+function onPageTapped(t) {
+  if (!doc) return;
+  const sig = activeSignature();
+  tapMenu(t.clientX, t.clientY, [
+    {
+      icon: '✍️', label: 'Add signature', cls: 'primary',
+      fn: () => sig ? placeTapped(t, { type: 'sig', sigId: sig.id, png: sig.png, w: sig.w, h: sig.h })
+                    : needSignature()
+    },
+    { icon: '📅', label: 'Add today’s date', fn: () => placeTapped(t, { type: 'text', text: today() }) },
+    { icon: '✕', label: 'Cancel', cls: 'quiet' }
+  ]);
+}
+
+/**
+ * Puts the chosen stamp where the page was tapped. If that was on or just
+ * above a printed line, it sits on the line properly instead of floating
+ * wherever the finger happened to land.
+ */
+async function placeTapped(t, spec) {
+  const rec = doc.pages[t.page];
+  if (!rec) return;
+
+  let line = null;
+  try {
+    await doc.hitsFor(rec);
+    line = doc.lineNear(rec, t.xPct, t.yPct);
+  } catch (_) { /* no detection is fine; place it exactly where they tapped */ }
+
+  let st;
+  if (line && spec.type === 'sig') {
+    st = doc.placeSignatureOnLine(line, { id: spec.sigId, png: spec.png, w: spec.w, h: spec.h });
+  } else if (line && spec.type === 'text') {
+    st = doc.placeDateOnLine(line, spec.text);
+  } else {
+    st = doc.placeAtPoint(spec, t.page, t.xPct, t.yPct);
+  }
+
+  if (!st) return;
+  doc.select(st);
+  toast(line ? 'Placed on the line. Drag to adjust.' : 'Drag to adjust, or use the blue dot to resize.', 2800);
 }
 
 /* ================= signing ================= */
@@ -385,18 +491,8 @@ function scrollToHit(hit) {
 
 $('btnAddSig').addEventListener('click', () => {
   if (!doc) return;
-  const sig = needSignature();
-  if (!sig) return;
-  const st = doc.placeInView({ type: 'sig', sigId: sig.id, png: sig.png, w: sig.w, h: sig.h }, $('docScroll'));
-  doc.select(st);
-  toast('Drag it into place. Use the blue dot to resize.', 3200);
-});
-
-$('btnAddDate').addEventListener('click', () => {
-  if (!doc) return;
-  const st = doc.placeInView({ type: 'text', text: today() }, $('docScroll'));
-  doc.select(st);
-  toast('Drag the date into place.', 2600);
+  if (!needSignature()) return;
+  toast('Tap the page where you want it — on a line if there is one.', 3600);
 });
 
 $('btnPickSig').addEventListener('click', () => {
@@ -492,6 +588,7 @@ function offerShare(filename) {
 
 /** Android's Back key. Returns true when the app consumed it, false to close the app. */
 window.inkSignBack = function () {
+  if (_tapMenu) { closeTapMenu(); return true; }
   if (!$('sheet').hidden) { closeSheet(); return true; }
   if (doc && doc.selected) { doc.select(null); return true; }
   if (screens.draw.classList.contains('is-active')) { show(padReturnsTo === 'doc' && doc ? 'doc' : 'home'); return true; }

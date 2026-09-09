@@ -168,6 +168,73 @@ async function testSigningAPdf(browser) {
   await ctx.close();
 }
 
+async function testTapToPlace(browser) {
+  console.log('\nPlacing by tapping the page');
+  const ctx = await browser.newContext({ viewport:{width:375,height:667}, deviceScaleFactor:2,
+    isMobile:true, hasTouch:true, acceptDownloads:true });
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await drawAndSaveSignature(page);
+  await openFile(page, path.join(FIX, 'agreement.pdf'));
+
+  const pageBox = await page.locator('.page').first().boundingBox();
+  const tapAt = async (xPct, yPct) => {
+    await page.mouse.click(pageBox.x + pageBox.width * xPct, pageBox.y + pageBox.height * yPct);
+    await page.waitForTimeout(400);
+  };
+
+  // The customer's signature line: y=470pt on an 842pt page, x from 60 to 290.
+  const lineY = 1 - 470 / 842, lineX = 150 / 595;
+  await tapAt(lineX, lineY - 0.01);
+  eq('a tap opens a menu at that spot', await page.locator('.tapmenu').count(), 1);
+  const labels = await page.locator('.tapmenu-item').allTextContents();
+  ok('the menu offers a signature and a date', labels.length === 3 && /signature/i.test(labels[0]), JSON.stringify(labels));
+
+  await page.locator('.tapmenu-item', { hasText: 'Add signature' }).click();
+  await page.waitForTimeout(1200);
+  eq('choosing signature places exactly one', await page.locator('.stamp').count(), 1);
+  ok('the menu closes after choosing', await page.locator('.tapmenu').count() === 0);
+
+  // It should snap onto the printed line, not sit where the finger landed.
+  const st = await page.evaluate(() => {
+    const e = document.querySelector('.stamp');
+    return { top: parseFloat(e.style.top) / 100, height: parseFloat(e.style.height) / 100,
+             left: parseFloat(e.style.left) / 100 };
+  });
+  const restsOn = st.top + st.height;
+  ok('it snaps onto the printed line rather than the exact tap point',
+     Math.abs(restsOn - (lineY + st.height * 0.16)) < 0.02, 'stamp bottom at ' + restsOn.toFixed(3) + ', line at ' + lineY.toFixed(3));
+  ok('and starts at the line, not under the finger', Math.abs(st.left - 60 / 595) < 0.05, 'left ' + st.left.toFixed(3));
+
+  // Tapping open space places it right there instead.
+  await page.locator('#btnSelDone').click();
+  await page.waitForTimeout(200);
+  await tapAt(0.5, 0.90);
+  await page.locator('.tapmenu-item', { hasText: 'date' }).click();
+  await page.waitForTimeout(900);
+  eq('a date can be added the same way', await page.locator('.stamp').count(), 2);
+  const dt = await page.evaluate(() => {
+    const e = document.querySelectorAll('.stamp')[1];
+    return { top: parseFloat(e.style.top) / 100, height: parseFloat(e.style.height) / 100 };
+  });
+  ok('away from any line it lands where you tapped', Math.abs((dt.top + dt.height) - 0.90) < 0.03,
+     'bottom at ' + (dt.top + dt.height).toFixed(3));
+
+  // Dismissing without choosing must not leave anything behind.
+  await page.locator('#btnSelDone').click();
+  await page.waitForTimeout(200);
+  await tapAt(0.5, 0.75);
+  await page.locator('.tapmenu-item', { hasText: 'Cancel' }).click();
+  await page.waitForTimeout(300);
+  eq('cancelling adds nothing', await page.locator('.stamp').count(), 2);
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
 async function testRotatedPage(browser) {
   console.log('\nA page the viewer has to rotate');
   const ctx = await browser.newContext({ viewport:{width:375,height:667}, deviceScaleFactor:2,
@@ -368,6 +435,7 @@ async function testAndroidShell(browser) {
 
   try {
     await testSigningAPdf(browser);
+    await testTapToPlace(browser);
     await testRotatedPage(browser);
     await testPhotoOfAForm(browser);
     await testLayout(browser);
