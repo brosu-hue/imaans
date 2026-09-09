@@ -47,6 +47,42 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      # The phone shows whoever signed the APK as its developer. A key stored in
+      # repository secrets keeps that identity stable, so new builds install over
+      # the old one; without it a fresh key is made each time, which still says
+      # Rasuul but counts as a different app to Android.
+      - name: Prepare the signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        working-directory: android
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > inksign.keystore
+            echo "INKSIGN_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "INKSIGN_KEY_ALIAS=${KEY_ALIAS:-rasuul}" >> "$GITHUB_ENV"
+            echo "Signing with the stored key."
+          else
+            keytool -genkeypair -v -keystore inksign.keystore -alias rasuul \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass inksign -keypass inksign \
+              -dname "CN=Rasuul, O=Rasuul"
+            echo "INKSIGN_KEYSTORE_PASSWORD=inksign" >> "$GITHUB_ENV"
+            echo "INKSIGN_KEY_ALIAS=rasuul" >> "$GITHUB_ENV"
+            {
+              echo "### Heads up about updating"
+              echo ""
+              echo "No stored signing key, so this build made a new one. The APK says"
+              echo "Rasuul, but Android treats each build as a different app: uninstall"
+              echo "the previous one before installing this."
+              echo ""
+              echo "Adding the repository secrets \`ANDROID_KEYSTORE_BASE64\` and"
+              echo "\`ANDROID_KEYSTORE_PASSWORD\` makes future builds install over the top."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "INKSIGN_KEYSTORE=$PWD/inksign.keystore" >> "$GITHUB_ENV"
+
       - name: Build the APK
         working-directory: android
         run: gradle assembleRelease --no-daemon --stacktrace
@@ -60,6 +96,19 @@ jobs:
           done
           mkdir -p out && cp "$APK" out/InkSign.apk
           ls -la out
+
+          # Prove the APK really reports Rasuul as its developer.
+          OWNER=$(keytool -printcert -jarfile "$APK" | grep -m1 'Owner:')
+          echo "$OWNER"
+          echo "$OWNER" | grep -q 'CN=Rasuul' \
+            || { echo "::error::the APK is not signed as Rasuul"; exit 1; }
+          {
+            echo "### Signed by"
+            echo ""
+            echo '```'
+            echo "$OWNER"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:

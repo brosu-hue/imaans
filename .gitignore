@@ -6,6 +6,11 @@ android/local.properties
 *.apk
 *.aab
 
+# signing keys never belong in the repository
+*.keystore
+*.jks
+android/keystore.properties
+
 # tooling
 node_modules/
 .DS_Store

@@ -27,23 +27,48 @@ def bundleWebApp = tasks.register('bundleWebApp', BundleWebApp) {
     webRoot.set(file("$rootDir/../www"))
 }
 
+/*
+ * Who the phone reports as the developer comes from the certificate the APK is
+ * signed with, so the build uses a key whose owner is Rasuul rather than the
+ * anonymous "Android Debug" key.
+ *
+ * The key itself is never kept in this repository. A build supplies it through
+ * INKSIGN_KEYSTORE (and its passwords); without one, the build falls back to
+ * the debug key and the APK is unsigned as far as identity goes.
+ */
+def keystorePath = System.getenv('INKSIGN_KEYSTORE')
+def keystore = keystorePath ? file(keystorePath) : file('inksign.keystore')
+def hasKeystore = keystore.exists()
+
 android {
-    namespace 'com.brosuhue.inksign'
+    namespace 'com.rasuul.inksign'
     compileSdk 35
 
     defaultConfig {
-        applicationId "com.brosuhue.inksign"
+        applicationId "com.rasuul.inksign"
         minSdk 26
         targetSdk 35
         versionCode 1
         versionName "1.0"
     }
 
+    signingConfigs {
+        rasuul {
+            if (hasKeystore) {
+                storeFile keystore
+                storePassword System.getenv('INKSIGN_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('INKSIGN_KEY_ALIAS') ?: 'rasuul'
+                keyPassword System.getenv('INKSIGN_KEY_PASSWORD')
+                        ?: System.getenv('INKSIGN_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             // A sideloaded personal build, not a Play Store release.
-            signingConfig signingConfigs.debug
+            signingConfig hasKeystore ? signingConfigs.rasuul : signingConfigs.debug
         }
     }
 

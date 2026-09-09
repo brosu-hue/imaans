@@ -22,9 +22,17 @@ It then opens like a normal app and keeps working with no signal.
 ## Installing it on Android
 
 Download and open **[InkSign.apk](https://github.com/brosu-hue/imaans/releases/download/apk-latest/InkSign.apk)**
-on the phone. Android will warn that it is from an unknown developer — that is normal for
-an app you install yourself rather than from the Play Store. Allow the install and it
-appears in your app drawer.
+on the phone. Android will warn that the app is not from the Play Store — that is normal
+for an app you install yourself. Allow the install and it appears in your app drawer.
+
+The app is signed as **Rasuul**, which is the developer Android reports for it, and every
+build checks that before publishing.
+
+> **To make new builds install over the old one** rather than needing an uninstall first,
+> the signing key has to stay the same between builds. Add it as repository secrets
+> `ANDROID_KEYSTORE_BASE64` (the keystore file, base64 encoded) and
+> `ANDROID_KEYSTORE_PASSWORD`. Without them each build creates a fresh key, which Android
+> treats as a different app. The key is never stored in this repository.
 
 A fresh APK is built automatically every time this repository changes. You can also grab it
 from the **Actions** tab of any completed run.

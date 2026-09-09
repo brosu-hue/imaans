@@ -1,4 +1,4 @@
-package com.brosuhue.inksign;
+package com.rasuul.inksign;
 
 import android.content.ActivityNotFoundException;
 import android.content.ContentValues;
