@@ -46,6 +46,10 @@
         <span class="tile-ico">✍️</span>
         <span class="tile-txt"><b>New signature</b><small>Draw with your finger</small></span>
       </button>
+      <button class="tile" id="tileSplit">
+        <span class="tile-ico">✂️</span>
+        <span class="tile-txt"><b>Split a PDF</b><small>Cut one document into separate files</small></span>
+      </button>
     </div>
 
     <h2 class="h2">My signatures</h2>
@@ -116,6 +120,33 @@
   </div>
 </section>
 
+<!-- ================= SPLIT ================= -->
+<section class="screen" id="screen-split">
+  <header class="bar">
+    <button class="icon-btn" data-back="home" title="Back">‹</button>
+    <div class="bar-title" id="splitTitle">Split a PDF</div>
+    <button class="txt-btn primary" id="btnSplitGo">Split</button>
+  </header>
+
+  <div class="doc-tools">
+    <button class="tool" id="btnSplitEach"><span>📄</span> Every page</button>
+    <button class="tool" id="btnSplitPairs"><span>📑</span> In pairs</button>
+    <button class="tool" id="btnSplitMine"><span>✂️</span> Choose myself</button>
+  </div>
+
+  <div class="scroll" id="splitScroll">
+    <div id="splitPages"></div>
+    <p class="split-hint">Tap the dotted line between two pages to cut there. Tap it again to undo.</p>
+  </div>
+
+  <footer class="bar bar-bottom split-bar">
+    <div class="split-sum">
+      <b id="splitCount">→ 1 file</b>
+      <small id="splitRanges"></small>
+    </div>
+  </footer>
+</section>
+
 <!-- ================= SHEET / DIALOG ================= -->
 <div class="sheet-scrim" id="scrim" hidden></div>
 <div class="sheet" id="sheet" hidden>
@@ -132,6 +163,9 @@
 
 <!-- Several at once: their pages append into one scroll and are signed together. -->
 <input type="file" id="filePick" accept="application/pdf,image/*" multiple hidden>
+
+<!-- Splitting takes one PDF at a time: a photo has no pages to cut apart. -->
+<input type="file" id="splitPick" accept="application/pdf" hidden>
 
 <!-- pdf-lib is loaded by export.js the first time something is saved. -->
 <script src="js/app.js" type="module"></script>

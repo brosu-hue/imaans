@@ -54,25 +54,31 @@ async function openFile(page, file) {
  * one there is nothing to choose and that sheet does not appear.
  */
 async function saveAll(page, password, how) {
+  return await collectDownloads(page, async () => {
+    await page.click('#btnExport');
+    await page.waitForTimeout(400);
+    if (how) {
+      await page.locator('.sheet-act',
+        { hasText: how === 'separate' ? 'Separate files' : 'One combined PDF' }).click();
+      await page.waitForTimeout(300);
+    }
+    if (password) {
+      await page.locator('.sheet-act', { hasText: /Protect (it|them) with a password/ }).click();
+      await page.waitForTimeout(300);
+      await page.locator('.pw-input').fill(password);
+      await page.locator('.sheet-act', { hasText: 'Save with this password' }).click();
+    } else {
+      await page.locator('.sheet-act', { hasText: 'Save without a password' }).click();
+    }
+  });
+}
+
+/** Runs `action` and resolves with every file the browser was handed by it. */
+async function collectDownloads(page, action) {
   const got = [];
   const collect = (d) => got.push(d);
   page.on('download', collect);
-
-  await page.click('#btnExport');
-  await page.waitForTimeout(400);
-  if (how) {
-    await page.locator('.sheet-act',
-      { hasText: how === 'separate' ? 'Separate files' : 'One combined PDF' }).click();
-    await page.waitForTimeout(300);
-  }
-  if (password) {
-    await page.locator('.sheet-act', { hasText: /Protect (it|them) with a password/ }).click();
-    await page.waitForTimeout(300);
-    await page.locator('.pw-input').fill(password);
-    await page.locator('.sheet-act', { hasText: 'Save with this password' }).click();
-  } else {
-    await page.locator('.sheet-act', { hasText: 'Save without a password' }).click();
-  }
+  await action();
 
   // Several files are downloaded one at a time with a gap between them, so wait
   // until the count stops moving rather than for a fixed number of events.
@@ -176,6 +182,22 @@ function inkInRegion(page, pageIndex, rect, pageH) {
     }
     return dark;
   }, { pageIndex, rect, pageH });
+}
+
+/** Anything sticking out sideways at viewport width `w`. */
+function overflowAt(page, w) {
+  return page.evaluate((w) => {
+    const de = document.documentElement;
+    const over = [];
+    document.querySelectorAll('body *').forEach(el => {
+      const b = el.getBoundingClientRect();
+      // The tool strip is meant to scroll sideways; everything else is not.
+      if (b.width > 0 && (b.right > w + 1 || b.left < -1) && !el.closest('.doc-tools')) {
+        over.push(el.tagName + '.' + String(el.className).split(' ')[0]);
+      }
+    });
+    return { scrollW: de.scrollWidth, clientW: de.clientWidth, over: over.slice(0, 3) };
+  }, w);
 }
 
 /* ---------- the tests ---------- */
@@ -496,20 +518,21 @@ async function testLayout(browser) {
     const page = await ctx.newPage();
     await page.goto(BASE, { waitUntil: 'networkidle' });
     await openFile(page, path.join(FIX, 'agreement.pdf'));
-    const r = await page.evaluate((w) => {
-      const de = document.documentElement;
-      const over = [];
-      document.querySelectorAll('body *').forEach(el => {
-        const b = el.getBoundingClientRect();
-        // The tool strip is meant to scroll sideways; everything else is not.
-        if (b.width > 0 && (b.right > w + 1 || b.left < -1) && !el.closest('.doc-tools')) {
-          over.push(el.tagName + '.' + String(el.className).split(' ')[0]);
-        }
-      });
-      return { scrollW: de.scrollWidth, clientW: de.clientWidth, over: over.slice(0, 3) };
-    }, s.w);
+    const r = await overflowAt(page, s.w);
     ok('no sideways scrolling at ' + s.n, r.scrollW <= r.clientW + 1 && r.over.length === 0,
        `scrollWidth ${r.scrollW} vs ${r.clientW} ${JSON.stringify(r.over)}`);
+
+    // The splitter's grid has to hold together at the same sizes.
+    await page.evaluate(() => document.getElementById('scrim').click());   // "draw a signature" sheet
+    await page.waitForTimeout(200);
+    await backToHome(page);
+    await page.click('#tileSplit');
+    await page.setInputFiles('#splitPick', path.join(FIX, 'five.pdf'));
+    await page.waitForTimeout(3000);
+    const sp = await overflowAt(page, s.w);
+    ok('no sideways scrolling in the splitter at ' + s.n,
+       sp.scrollW <= sp.clientW + 1 && sp.over.length === 0,
+       `scrollWidth ${sp.scrollW} vs ${sp.clientW} ${JSON.stringify(sp.over)}`);
     await ctx.close();
   }
 }
@@ -953,6 +976,224 @@ async function testALockedOneAmongSeveral(browser) {
   await ctx.close();
 }
 
+/* ---------- splitting ---------- */
+
+/* The black bar every page of five.pdf carries at its own height, in PDF points:
+   the only way to tell a piece of a split holds page 3 and not page 4. */
+const FIVE_BAR = (n) => ({ x: 60, y: 760 - (n - 1) * 120, w: 200, h: 40 });
+
+/** Opens the splitter on a file, the way the home screen does. */
+async function openSplitter(page, file) {
+  await page.click('#screen-home #tileSplit');
+  await page.setInputFiles('#splitPick', file);
+  await page.waitForTimeout(3500);
+}
+
+/** Taps the gap that cuts after page `n` (1-based). */
+async function tapGap(page, n) {
+  await page.locator('.split-gap[data-cut="' + (n - 1) + '"]').click();
+  await page.waitForTimeout(250);
+}
+
+const splitCount = (page) => page.locator('#splitCount').textContent();
+const splitRanges = (page) => page.locator('#splitRanges').textContent();
+
+async function testSplitting(browser) {
+  console.log('\nSplitting a PDF into several');
+  const ctx = await phone(browser);
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+
+  // The tile really is wired to a picker, and to one PDF at a time.
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    page.click('#tileSplit')
+  ]);
+  ok('splitting is offered on the home screen', !chooser.isMultiple());
+  await chooser.setFiles(path.join(FIX, 'five.pdf'));
+  await page.waitForTimeout(3500);
+
+  eq('it opens on its own screen', await page.locator('#screen-split.is-active').count(), 1);
+  eq('every page is shown', await page.locator('.split-cell').count(), 5);
+  eq('named after the document', await page.locator('#splitTitle').textContent(), 'five');
+  eq('and it starts on one file per page', await splitCount(page), '→ 5 files');
+  await page.screenshot({ path: path.join(SHOTS, 'split.png') });
+
+  // The grid must not cost what the reader costs: these are small renders.
+  const widths = await page.evaluate(
+    () => [].map.call(document.querySelectorAll('.split-cell canvas'), c => c.width));
+  ok('the pages are rendered as thumbnails, not full size',
+     widths.length === 5 && Math.max.apply(null, widths) < 500, JSON.stringify(widths));
+
+  await page.click('#btnSplitPairs');
+  await page.waitForTimeout(300);
+  eq('“In pairs” gives three files from five pages', await splitCount(page), '→ 3 files');
+  eq('and says which pages go where', await splitRanges(page), 'pages 1-2, 3-4, 5');
+
+  await page.click('#btnSplitMine');
+  await page.waitForTimeout(300);
+  eq('“Choose myself” clears the cuts', await splitCount(page), '→ 1 file');
+  eq('and no cut markers are left set', await page.locator('.split-gap.is-cut').count(), 0);
+  ok('with nothing to split, the button is unavailable',
+     await page.locator('#btnSplitGo').isDisabled());
+
+  // Tapping between pages 2/3 and 3/4: 1-2, 3, 4-5.
+  await tapGap(page, 2);
+  await tapGap(page, 3);
+  eq('tapping two gaps makes three files', await splitCount(page), '→ 3 files');
+  eq('exactly where they were tapped', await splitRanges(page), 'pages 1-2, 3, 4-5');
+  eq('and both markers show as cut', await page.locator('.split-gap.is-cut').count(), 2);
+
+  await tapGap(page, 3);
+  eq('tapping the same gap again removes that cut', await splitCount(page), '→ 2 files');
+  eq('and the pages join up again', await splitRanges(page), 'pages 1-2, 3-5');
+  await tapGap(page, 3);
+  eq('and tapping it once more puts it back', await splitRanges(page), 'pages 1-2, 3, 4-5');
+
+  const chosen = await collectDownloads(page, () => page.click('#btnSplitGo'));
+  eq('the count at the bottom is what actually comes out', chosen.length, 3);
+  eq('each named for the pages it holds',
+     JSON.stringify(chosen.map(d => d.suggestedFilename())),
+     JSON.stringify(['five-pages-1-to-2.pdf', 'five-page-3.pdf', 'five-pages-4-to-5.pdf']));
+
+  const cut = [];
+  for (let i = 0; i < chosen.length; i++) {
+    const p = path.join(SHOTS, 'split-' + chosen[i].suggestedFilename());
+    await chosen[i].saveAs(p);
+    cut.push(p);
+  }
+
+  // The same document, cut a second way, without leaving the screen.
+  await page.click('#btnSplitEach');
+  await page.waitForTimeout(300);
+  const each = await collectDownloads(page, () => page.click('#btnSplitGo'));
+  eq('“Every page” gives one file per page', each.length, 5);
+  eq('each named after its page',
+     JSON.stringify(each.map(d => d.suggestedFilename())),
+     JSON.stringify(['five-page-1.pdf', 'five-page-2.pdf', 'five-page-3.pdf',
+                     'five-page-4.pdf', 'five-page-5.pdf']));
+  const single = path.join(SHOTS, 'split-single-4.pdf');
+  await each[3].saveAs(single);
+
+  // Reopening the pieces is the only proof they hold the right pages. The
+  // reader asks for a signature the first time a document is opened without
+  // one, so draw one now rather than have that sheet sit over every check.
+  await page.click('#screen-split [data-back="home"]');
+  await page.waitForTimeout(400);
+  await drawAndSaveSignature(page);
+
+  await openFile(page, cut[0]);
+  eq('the first piece holds its two pages', await page.locator('.page').count(), 2);
+  ok('starting with page one of the original',
+     await inkInRegion(page, 0, FIVE_BAR(1), 842) > 400, 'page 1 bar missing');
+  eq('and nothing from page five', await inkInRegion(page, 0, FIVE_BAR(5), 842), 0);
+  ok('followed by page two', await inkInRegion(page, 1, FIVE_BAR(2), 842) > 400, 'page 2 bar missing');
+
+  await backToHome(page);
+  await openFile(page, cut[1]);
+  eq('the middle piece is a single page', await page.locator('.page').count(), 1);
+  ok('and it is page three', await inkInRegion(page, 0, FIVE_BAR(3), 842) > 400, 'page 3 bar missing');
+  eq('not page two', await inkInRegion(page, 0, FIVE_BAR(2), 842), 0);
+
+  await backToHome(page);
+  await openFile(page, cut[2]);
+  eq('the last piece holds the final two pages', await page.locator('.page').count(), 2);
+  ok('page four first', await inkInRegion(page, 0, FIVE_BAR(4), 842) > 400, 'page 4 bar missing');
+  ok('then page five', await inkInRegion(page, 1, FIVE_BAR(5), 842) > 400, 'page 5 bar missing');
+
+  await backToHome(page);
+  await openFile(page, single);
+  eq('a one-page-per-file piece really is one page', await page.locator('.page').count(), 1);
+  ok('and holds the page its name claims',
+     await inkInRegion(page, 0, FIVE_BAR(4), 842) > 400, 'page 4 bar missing');
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+async function testSplittingAProtectedDocument(browser) {
+  console.log('\nSplitting a document that needs a password');
+  const ctx = await phone(browser);
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+
+  await page.click('#tileSplit');
+  await page.setInputFiles('#splitPick', path.join(FIX, 'locked.pdf'));
+  await page.waitForTimeout(2500);
+  eq('it asks for the password before showing the pages',
+     await page.locator('.pw-input').count(), 1);
+  await page.locator('.pw-input').fill('letmein');
+  await page.locator('.sheet-act', { hasText: 'Open' }).click();
+  await page.waitForTimeout(4000);
+  eq('the right password opens it for splitting', await page.locator('.split-cell').count(), 2);
+  eq('two pages make two files', await splitCount(page), '→ 2 files');
+
+  const files = await collectDownloads(page, () => page.click('#btnSplitGo'));
+  eq('a protected document splits like any other', files.length, 2);
+  const out = path.join(SHOTS, 'split-locked-1.pdf');
+  await files[0].saveAs(out);
+  ok('and the pieces come out unlocked, not still encrypted',
+     !fs.readFileSync(out).includes('/Encrypt'), 'the piece is still encrypted');
+
+  await page.click('#screen-split [data-back="home"]');
+  await page.waitForTimeout(400);
+  await drawAndSaveSignature(page);      // or opening the piece stops to ask for one
+  await openFile(page, out);
+  eq('so a piece reopens with no password at all', await page.locator('.page').count(), 1);
+  ok('and nothing asked for one', await page.locator('#sheet').isHidden());
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+async function testSplittingALongDocument(browser) {
+  console.log('\nA long document in the splitter grid');
+  const ctx = await phone(browser);
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+
+  await openSplitter(page, path.join(FIX, 'long.pdf'));
+  eq('all forty pages are in the grid', await page.locator('.split-cell').count(), 40);
+  eq('and it counts a file for each', await splitCount(page), '→ 40 files');
+  ok('with a summary short enough for the bar',
+     (await splitRanges(page)) === 'pages 1, 2, 3, …, 40', await splitRanges(page));
+
+  /* Forty full-size page bitmaps would be over 100MB. Only the ones near the
+     viewport may be alive, and each must be thumbnail-sized. */
+  const live = () => page.evaluate(() => {
+    const cs = [].filter.call(document.querySelectorAll('.split-cell canvas'), c => c.width > 0);
+    return { n: cs.length, max: cs.reduce((m, c) => Math.max(m, c.width), 0) };
+  });
+  const top = await live();
+  ok('only the pages on screen are rendered', top.n > 0 && top.n <= 20, JSON.stringify(top));
+  ok('and every one of them is a thumbnail', top.max < 500, JSON.stringify(top));
+
+  await page.evaluate(() => {
+    const sc = document.getElementById('splitScroll');
+    sc.scrollTop = sc.scrollHeight;
+  });
+  await page.waitForTimeout(2500);
+  const bottom = await live();
+  ok('scrolling to the end does not accumulate them', bottom.n <= 20, JSON.stringify(bottom));
+  ok('the last pages render there', bottom.max > 0, JSON.stringify(bottom));
+
+  // Leaving must tear the whole grid down, however it is left.
+  eq('the Android Back key leaves the splitter',
+     await page.evaluate(() => window.inkSignBack()), true);
+  await page.waitForTimeout(500);
+  eq('back on the home screen', await page.locator('#screen-home.is-active').count(), 1);
+  eq('with nothing of the document left behind', await page.locator('.split-cell').count(), 0);
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
 /* ---------- runner ---------- */
 
 (async () => {
@@ -984,6 +1225,9 @@ async function testALockedOneAmongSeveral(browser) {
     await testKeepingDocumentsSeparate(browser);
     await testAPdfAndAPhoto(browser);
     await testALockedOneAmongSeveral(browser);
+    await testSplitting(browser);
+    await testSplittingAProtectedDocument(browser);
+    await testSplittingALongDocument(browser);
     await testLayout(browser);
     await testSignatureIsRemembered(browser);
     await testAndroidStore(browser);

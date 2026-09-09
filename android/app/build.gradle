@@ -16,9 +16,6 @@ abstract class BundleWebApp extends DefaultTask {
         fs.sync {
             from webRoot
             into outputDir.dir("www")
-            // The service worker exists to make the website work offline.
-            // Inside the APK every file is already on the device.
-            exclude 'sw.js'
         }
     }
 }

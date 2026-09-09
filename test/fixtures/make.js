@@ -76,6 +76,26 @@ async function rotated() {
   fs.writeFileSync(path.join(OUT, 'rotated.pdf'), await d.save());
 }
 
+/* Five pages for the splitter. Each carries a solid black bar at a height only
+   that page uses, so a piece of the split can be checked for holding the RIGHT
+   pages and not merely the right number of them. */
+const BAR = { x: 60, w: 200, h: 40 };
+const barY = (n) => 760 - (n - 1) * 120;      // page 1 at 760pt, page 5 at 280pt
+
+async function fivePage() {
+  const d = await PDFDocument.create();
+  const f = await d.embedFont(StandardFonts.Helvetica);
+  const b = await d.embedFont(StandardFonts.HelveticaBold);
+  for (let n = 1; n <= 5; n++) {
+    const p = d.addPage([595, 842]);
+    p.drawText('PAGE ' + n, { x: 60, y: 800, size: 22, font: b, color: rgb(.05,.05,.05) });
+    p.drawRectangle({ x: BAR.x, y: barY(n), width: BAR.w, height: BAR.h, color: rgb(0,0,0) });
+    p.drawText('This is page ' + n + ' of the five-page bundle.',
+      { x: 60, y: barY(n) - 26, size: 11, font: f, color: rgb(.1,.1,.1) });
+  }
+  fs.writeFileSync(path.join(OUT, 'five.pdf'), await d.save());
+}
+
 /* A document protected the way scanners and office tools protect one: an owner
    password restricting changes, and no password needed to open it. Signing one
    of these must produce an ordinary, unlocked PDF. */
@@ -123,6 +143,7 @@ async function longDocument() {
 (async () => {
   await agreement();
   await receipt();
+  await fivePage();
   await rotated();
   await protectedCopy();
   await lockedCopy();

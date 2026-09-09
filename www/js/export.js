@@ -141,6 +141,55 @@ async function buildSeparate(doc, step) {
   return built;
 }
 
+/* ---------- cutting one document into several ---------- */
+
+/**
+ * Splits one PDF into a file per group of pages. Nothing is drawn and no
+ * geometry is involved — the pages are copied across exactly as they are.
+ * @param {object} source   { name, bytes, password, pageCount }
+ * @param {Array}  groups   arrays of 0-based page indices, in order
+ * @returns {Array} [{ filename, bytes }]
+ */
+export async function buildSplit(source, groups, opts) {
+  const step = (opts && opts.onStep) || function () {};
+  step('Getting the PDF tools ready…');
+  await ensureLib();
+
+  // Parsed once and copied from repeatedly: reloading it per output would read
+  // a forty-page document forty times over.
+  const src = await PDFDocument.load(source.bytes, { password: source.password || '' });
+  const total = source.pageCount || src.getPageCount();
+  const used = Object.create(null);
+  const files = [];
+
+  for (let i = 0; i < groups.length; i++) {
+    step('Building file ' + (i + 1) + ' of ' + groups.length + '…');
+    const out = await PDFDocument.create();
+    const copied = await out.copyPages(src, groups[i]);
+    copied.forEach(p => out.addPage(p));
+    files.push({
+      filename: unique(used, splitName(source.name, groups[i], String(total).length)),
+      bytes: await finish(out, opts)
+    });
+    await frame();
+  }
+  return files;
+}
+
+/**
+ * What one piece is called. The page numbers are the whole point — a week later
+ * in Downloads, "agreement-pages-04-to-05.pdf" says exactly what it holds.
+ * They are padded to the width of the document's own page count so the pieces
+ * also sit in reading order in a folder sorted by name: page-02 before page-10.
+ */
+function splitName(name, group, width) {
+  const at = (i) => String(i + 1).padStart(width, '0');
+  const label = group.length === 1
+    ? 'page-' + at(group[0])
+    : 'pages-' + at(group[0]) + '-to-' + at(group[group.length - 1]);
+  return safeName(name) + '-' + label + '.pdf';
+}
+
 /* ---------- drawing ---------- */
 
 /**

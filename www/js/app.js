@@ -1,5 +1,5 @@
 import { SignaturePad } from './pad.js';
-import { buildOutputs, deliverMany } from './export.js';
+import { buildOutputs, buildSplit, deliverMany } from './export.js';
 import {
   hydrate, keepStorage, storageWorks,
   listSignatures, addSignature, deleteSignature,
@@ -11,7 +11,8 @@ const $ = (id) => document.getElementById(id);
 const screens = {
   home: $('screen-home'),
   draw: $('screen-draw'),
-  doc: $('screen-doc')
+  doc: $('screen-doc'),
+  split: $('screen-split')
 };
 
 let pad = null;
@@ -222,6 +223,7 @@ function leave(target) {
     return;
   }
   if (screens.doc.classList.contains('is-active')) discardDoc();
+  if (screens.split.classList.contains('is-active')) discardSplit();
   show(target);
 }
 
@@ -838,6 +840,240 @@ function offerShare(files, protectedFile) {
   });
 }
 
+/* ================= splitting a document into several ================= */
+
+/* A side utility, not part of signing: it keeps its OWN SignDoc so opening the
+   splitter can never disturb a document being signed. The pages are laid out in
+   a small grid, which is all it takes to get thumbnails — SignDoc sizes every
+   page bitmap to how wide it is actually shown, and drops the ones you have
+   scrolled past, so a forty-page document costs a handful of small canvases. */
+let splitDoc = null;
+/* Where the cuts are: index i means "cut after page i", zero-based. Both the
+   presets and tapping a gap write to this one set, so a preset is a starting
+   point that can then be adjusted rather than a separate mode. */
+let splitCuts = new Set();
+
+$('tileSplit').addEventListener('click', () => $('splitPick').click());
+
+$('splitPick').addEventListener('change', async (e) => {
+  const file = (e.target.files || [])[0];
+  e.target.value = '';
+  if (file) await openSplitter(file);
+});
+
+async function openSplitter(file) {
+  discardSplit();
+  busy('Opening…');
+  let mine = null;
+  try {
+    const Doc = await docModule();
+    mine = splitDoc = new Doc($('splitPages'));
+    mine.onPasswordNeeded = (wrong) => {
+      idle();
+      return askPassword({
+        title: wrong ? 'That password did not work' : 'This document is locked',
+        note: 'Enter the password used to open it. It is only used on this phone.',
+        confirm: 'Open'
+      }).then((pw) => { if (pw !== null) busy('Opening…'); return pw; });
+    };
+
+    const src = await mine.addSource(file, (i, total) => busy('Opening page ' + i + ' of ' + total + '…'));
+    if (splitDoc !== mine) { mine.destroy(); return; }   // closed while it loaded
+    if (!src.bytes) throw new Error('Only a PDF can be split into pages.');
+    if (mine.pages.length < 2) {
+      throw new Error('“' + src.name + '” has only one page, so there is nothing to split.');
+    }
+
+    $('splitTitle').textContent = src.name;
+    buildSplitGrid(mine);
+    show('split');
+    mine.watchViewport($('splitScroll'));
+    // One page per file is what people usually come here for, and starting on
+    // it shows what a cut looks like — the markers teach themselves.
+    setCuts(everyPageCuts(mine.pages.length));
+  } catch (err) {
+    if (mine && splitDoc !== mine) { mine.destroy(); return; }
+    discardSplit();
+    show('home');
+    sheet({
+      title: 'That file cannot be split',
+      note: (err && err.message) || 'The file may be damaged, or password protected.',
+      actions: [{ label: 'OK', cls: 'primary' }]
+    });
+  } finally {
+    idle();
+  }
+}
+
+function discardSplit() {
+  if (splitDoc) { splitDoc.destroy(); splitDoc = null; }
+  $('splitPages').innerHTML = '';    // destroy() drops the pages; the cells are ours
+  splitCuts = new Set();
+}
+
+/** Wraps each rendered page in a cell that carries the cut marker before it. */
+function buildSplitGrid(d) {
+  const host = $('splitPages');
+  d.pages.forEach((rec, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'split-cell';
+    host.insertBefore(cell, rec.el);
+
+    // Page one has no cut before it, but keeps the slot so the thumbnails all
+    // come out the same width.
+    const gap = document.createElement(i ? 'button' : 'div');
+    gap.className = 'split-gap';
+    if (i) {
+      gap.setAttribute('data-cut', String(i - 1));
+      gap.title = 'Cut between page ' + i + ' and page ' + (i + 1);
+      const line = document.createElement('span');
+      line.className = 'split-gap-line';
+      const ico = document.createElement('span');
+      ico.className = 'split-gap-ico';
+      ico.textContent = '✂';
+      gap.appendChild(line);
+      gap.appendChild(ico);
+      gap.addEventListener('click', () => {
+        if (splitCuts.has(i - 1)) splitCuts.delete(i - 1); else splitCuts.add(i - 1);
+        paintSplit();
+      });
+    }
+    cell.appendChild(gap);
+
+    const thumb = document.createElement('div');
+    thumb.className = 'split-thumb';
+    thumb.appendChild(rec.el);
+    const num = document.createElement('span');
+    num.className = 'split-num';
+    num.textContent = String(i + 1);
+    thumb.appendChild(num);
+    cell.appendChild(thumb);
+  });
+}
+
+function everyPageCuts(n) {
+  const s = new Set();
+  for (let i = 0; i < n - 1; i++) s.add(i);
+  return s;
+}
+
+/** 1-2, 3-4, … — a cut after every second page, so an odd last page rides alone. */
+function pairCuts(n) {
+  const s = new Set();
+  for (let i = 1; i < n - 1; i += 2) s.add(i);
+  return s;
+}
+
+function setCuts(cuts) {
+  splitCuts = cuts;
+  paintSplit();
+}
+
+/** The pages of each file that would come out, in order. */
+function splitGroups() {
+  const n = splitDoc ? splitDoc.pages.length : 0;
+  const groups = [];
+  let cur = [];
+  for (let i = 0; i < n; i++) {
+    cur.push(i);
+    if (splitCuts.has(i) || i === n - 1) { groups.push(cur); cur = []; }
+  }
+  return groups;
+}
+
+/** "pages 1-2, 3, 4-5" — what he gets, before he commits to it. */
+function describeGroups(groups) {
+  const parts = groups.map(g => g.length === 1
+    ? String(g[0] + 1)
+    : (g[0] + 1) + '-' + (g[g.length - 1] + 1));
+  // Forty of these would run off the end of the bar; the first few and the last
+  // say enough to recognise the shape of the split.
+  const shown = parts.length > 6
+    ? parts.slice(0, 3).concat('…', parts[parts.length - 1])
+    : parts;
+  return 'pages ' + shown.join(', ');
+}
+
+function sameCuts(a, b) {
+  if (a.size !== b.size) return false;
+  let same = true;
+  a.forEach(v => { if (!b.has(v)) same = false; });
+  return same;
+}
+
+/** Redraws the markers, the shading and the count from `splitCuts`. */
+function paintSplit() {
+  if (!splitDoc) return;
+  const n = splitDoc.pages.length;
+  const groups = splitGroups();
+
+  const fileOf = [];
+  groups.forEach((g, gi) => g.forEach(p => { fileOf[p] = gi; }));
+
+  [].forEach.call($('splitPages').children, (cell, i) => {
+    // Alternating shading behind each file, so the grouping is visible on the
+    // page itself and not only in the line of text at the bottom.
+    cell.className = 'split-cell' + (fileOf[i] % 2 ? ' is-alt' : '');
+    const gap = cell.querySelector('.split-gap[data-cut]');
+    if (gap) gap.classList.toggle('is-cut', splitCuts.has(i - 1));
+  });
+
+  $('splitCount').textContent = '→ ' + groups.length + (groups.length === 1 ? ' file' : ' files');
+  $('splitRanges').textContent = groups.length > 1
+    ? describeGroups(groups)
+    : 'Tap between two pages to cut there.';
+  $('btnSplitGo').disabled = groups.length < 2;
+
+  $('btnSplitEach').classList.toggle('is-on', sameCuts(splitCuts, everyPageCuts(n)));
+  $('btnSplitPairs').classList.toggle('is-on', sameCuts(splitCuts, pairCuts(n)));
+  $('btnSplitMine').classList.toggle('is-on', splitCuts.size === 0);
+}
+
+$('btnSplitEach').addEventListener('click', () => {
+  if (splitDoc) setCuts(everyPageCuts(splitDoc.pages.length));
+});
+$('btnSplitPairs').addEventListener('click', () => {
+  if (splitDoc) setCuts(pairCuts(splitDoc.pages.length));
+});
+$('btnSplitMine').addEventListener('click', () => {
+  if (!splitDoc) return;
+  setCuts(new Set());
+  toast('Tap the dotted line between two pages to cut there.', 3200);
+});
+
+$('btnSplitGo').addEventListener('click', async () => {
+  const mine = splitDoc;
+  if (!mine) return;
+  const groups = splitGroups();
+  if (groups.length < 2) { toast('Tap between two pages to choose where to cut.'); return; }
+
+  const src = mine.sources[0];
+  busy('Splitting…');
+  try {
+    const files = await buildSplit(
+      { name: src.name, bytes: src.bytes, password: src.password, pageCount: mine.pages.length },
+      groups,
+      { onStep: (m) => busy(m) }
+    );
+    idle();
+    const how = await deliverMany(files);
+    if (how === 'saved') offerShare(files, false);
+    else if (how === 'shared') toast('Shared ' + files.length + ' files.');
+    else if (how === 'downloaded') {
+      toast('Downloaded ' + files.length + ' files — your browser may ask to allow more than one.', 4200);
+    }
+  } catch (err) {
+    idle();
+    sheet({
+      title: 'Could not split this document',
+      note: (err && err.message) || 'Something went wrong cutting the PDF up.',
+      actions: [{ label: 'OK', cls: 'primary' }]
+    });
+  } finally {
+    idle();
+  }
+});
+
 /* ================= the Android shell talks to the app through these ================= */
 
 /** Android's Back key. Returns true when the app consumed it, false to close the app. */
@@ -852,6 +1088,7 @@ window.inkSignBack = function () {
   if (doc && doc.selected) { doc.select(null); return true; }
   if (screens.draw.classList.contains('is-active')) { show(padReturnsTo === 'doc' && doc ? 'doc' : 'home'); return true; }
   if (screens.doc.classList.contains('is-active')) { leave('home'); return true; }
+  if (screens.split.classList.contains('is-active')) { leave('home'); return true; }
   return false;
 };
 
@@ -934,12 +1171,6 @@ window.addEventListener('resize', () => {
 document.addEventListener('touchmove', (e) => {
   if (!e.target.closest('.scroll, .sheet, .draw-wrap, .doc-tools')) e.preventDefault();
 }, { passive: false });
-
-if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  });
-}
 
 // Load what was saved before the first render, and ask the browser to hang on
 // to it, so a signature drawn once is still there next time.

@@ -50,6 +50,11 @@ fill in today's date as well.
 Downloads folder and offers to send it on. Several documents can be saved as one combined
 file or one file each.
 
+**Split a PDF** — a separate tool on the home screen, nothing to do with signing. It shows the
+pages as thumbnails: choose *Every page* or *In pairs*, or tap the dotted line between two
+pages to cut there. The bottom bar says what you will get — "→ 3 files", "pages 1-2, 3, 4-5" —
+before you commit, and each piece is named after the pages it holds, e.g. `report-pages-04-to-05.pdf`.
+
 ---
 
 ## What is in here
@@ -71,7 +76,7 @@ Inside `www/`:
   row of text, and drops rules that form a table. On a PDF it also reads the printed words to
   tell a *Signature* line from a *Date* line.
 - `js/doc.js` — renders pages and handles placing, dragging and resizing.
-- `js/export.js` — flattens everything into the PDF. Placement goes through pdf.js's own
+- `js/export.js` — flattens everything into the PDF, and cuts one up again for *Split a PDF*. Placement goes through pdf.js's own
   viewport maths, so rotated and cropped pages land correctly instead of being guessed at.
 - `js/store.js` — the signature library, in the phone's own storage.
 - `vendor/` — [pdf.js](https://mozilla.github.io/pdf.js/) and
