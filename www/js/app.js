@@ -757,7 +757,29 @@ window.inkSignBack = function () {
   return false;
 };
 
-/** A PDF or picture shared into the app from another app. */
+/**
+ * A PDF or picture shared into the app, handed over as a URL the shell serves
+ * from its own storage. Preferred over the base64 route below: that one has to
+ * carry the whole file through a JavaScript string, which for a large document
+ * costs several times its size in memory on both sides.
+ */
+window.inkSignOpenFileUrl = function (name, mime, url) {
+  fetch(url)
+    .then((res) => {
+      if (!res.ok) throw new Error('http ' + res.status);
+      return res.blob();
+    })
+    .then((blob) => openDocument(new File([blob], name || 'document',
+      { type: mime || 'application/pdf' })))
+    .catch(() => {
+      // Ask the shell to send it the old way rather than losing the document.
+      const bridge = window.InkSignAndroid;
+      if (bridge && bridge.inboxFailed) bridge.inboxFailed();
+      else toast('That file could not be opened.');
+    });
+};
+
+/** The same thing, carried as base64. Kept for older shells and as a fallback. */
 window.inkSignOpenFile = function (name, mime, base64) {
   try {
     const bin = atob(base64);
@@ -826,4 +848,11 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 hydrate().then(() => {
   keepStorage();
   renderHome();
+  // The Android shell holds any document shared into the app until the page
+  // says it can take it; without this it guesses at a delay and a slow start
+  // loses the file.
+  try {
+    const bridge = window.InkSignAndroid;
+    if (bridge && bridge.ready) bridge.ready();
+  } catch (_) {}
 });

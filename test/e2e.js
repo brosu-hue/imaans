@@ -548,10 +548,12 @@ async function testAndroidShell(browser) {
   // Stand in for the JavascriptInterface the APK installs.
   await ctx.addInitScript(() => {
     window.__android = { saved: null, shared: 0 };
+    window.__android.readyCalls = 0;
     window.InkSignAndroid = {
       saveBase64: (n, m, b) => { window.__android.saved = { n, m, b64: b.slice(0, 8) }; },
       shareLast: () => { window.__android.shared++; },
-      canShare: () => !!window.__android.saved
+      canShare: () => !!window.__android.saved,
+      ready: () => { window.__android.readyCalls++; }
     };
   });
   const page = await ctx.newPage();
@@ -559,6 +561,8 @@ async function testAndroidShell(browser) {
   await page.goto(BASE, { waitUntil: 'networkidle' });
 
   eq('Back on the home screen closes the app', await page.evaluate(() => window.inkSignBack()), false);
+  eq('the page tells the shell when it can accept a document',
+     await page.evaluate(() => window.__android.readyCalls), 1);
   await drawAndSaveSignature(page);
 
   // A document shared in from another app.
@@ -566,6 +570,29 @@ async function testAndroidShell(browser) {
   await page.evaluate(d => window.inkSignOpenFile('agreement.pdf', 'application/pdf', d), b64);
   await page.waitForTimeout(3000);
   eq('a shared-in PDF opens', await page.locator('.page').count(), 2);
+
+  // The shell prefers handing over a URL it serves itself; carrying a large
+  // document through a base64 string costs several times its size both sides.
+  await backToHome(page);
+  await page.evaluate(() => window.inkSignOpenFileUrl(
+    'agreement.pdf', 'application/pdf', 'fixtures/agreement.pdf'));
+  await page.waitForTimeout(3500);
+  eq('a shared-in PDF opens from a URL too', await page.locator('.page').count(), 2);
+
+  // A URL that does not resolve must fall back to the shell, not lose the file.
+  await backToHome(page);
+  await page.evaluate(() => { window.__android.fellBack = 0;
+    window.InkSignAndroid.inboxFailed = () => { window.__android.fellBack++; }; });
+  await page.evaluate(() => window.inkSignOpenFileUrl('x.pdf', 'application/pdf', 'fixtures/missing.pdf'));
+  await page.waitForTimeout(1500);
+  eq('a URL that fails asks the shell to resend it', await page.evaluate(() => window.__android.fellBack), 1);
+
+  // That last one deliberately failed, so put a document back on screen for
+  // the checks below.
+  await page.evaluate(() => window.inkSignOpenFileUrl(
+    'agreement.pdf', 'application/pdf', 'fixtures/agreement.pdf'));
+  await page.waitForSelector('#screen-doc.is-active');
+  await page.waitForTimeout(2500);
 
   await page.click('#btnSignAll');
   await page.waitForTimeout(5000);
