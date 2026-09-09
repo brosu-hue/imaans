@@ -1,0 +1,97 @@
+name: Test, build the APK, publish the site
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  # Nothing is published unless the app actually signs a document correctly.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run fixtures
+      - run: npm test
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failure-screenshots
+          path: /tmp/inksign-shots
+          if-no-files-found: ignore
+
+  apk:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build the APK
+        working-directory: android
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Check the web app really made it into the APK
+        run: |
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          echo "built: $APK"
+          for f in assets/www/index.html assets/www/js/app.js assets/www/vendor/pdf.min.mjs; do
+            unzip -l "$APK" | grep -q "$f" || { echo "::error::$f is missing from the APK"; exit 1; }
+          done
+          mkdir -p out && cp "$APK" out/InkSign.apk
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: InkSign-apk
+          path: out/InkSign.apk
+          if-no-files-found: error
+
+      # A plain download link, so a phone can fetch it without signing in.
+      - name: Publish as the latest build
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view apk-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create apk-latest --repo "$GITHUB_REPOSITORY" --prerelease \
+              --title "InkSign - latest build" \
+              --notes "The newest Android build. It is self-signed, so Android will warn that it comes from an unknown developer - that is normal for an app you install yourself."
+          gh release upload apk-latest out/InkSign.apk --repo "$GITHUB_REPOSITORY" --clobber
+          echo "APK: https://github.com/$GITHUB_REPOSITORY/releases/download/apk-latest/InkSign.apk" >> "$GITHUB_STEP_SUMMARY"
+
+  site:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+      - id: deploy
+        uses: actions/deploy-pages@v4

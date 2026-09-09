@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#101317">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="InkSign">
+<meta name="description" content="Draw your signature once, then stamp it onto every signature line in a PDF or photo.">
+<title>InkSign</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ================= HOME ================= -->
+<section class="screen is-active" id="screen-home">
+  <header class="bar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true">✒︎</span> InkSign</div>
+    <button class="icon-btn" id="btnInstall" hidden title="Install app">⤓</button>
+  </header>
+
+  <div class="scroll pad">
+    <p class="lede">Draw your signature once. Open a document. Stamp every signature line in one tap.</p>
+
+    <div class="tiles">
+      <button class="tile tile-primary" id="tileOpen">
+        <span class="tile-ico">📄</span>
+        <span class="tile-txt"><b>Open a document</b><small>PDF, photo or scan</small></span>
+      </button>
+      <button class="tile" id="tileDraw">
+        <span class="tile-ico">✍️</span>
+        <span class="tile-txt"><b>New signature</b><small>Draw with your finger</small></span>
+      </button>
+    </div>
+
+    <h2 class="h2">My signatures</h2>
+    <div class="siglist" id="sigList"></div>
+    <p class="empty" id="sigEmpty">No signatures saved yet. Tap <b>New signature</b> to draw one — it stays on this device.</p>
+
+    <h2 class="h2">Recent documents</h2>
+    <div class="reclist" id="recList"></div>
+    <p class="empty" id="recEmpty">Nothing yet.</p>
+
+    <p class="fineprint">Everything happens on your phone. Your signature and documents are never uploaded anywhere.</p>
+  </div>
+</section>
+
+<!-- ================= DRAW ================= -->
+<section class="screen" id="screen-draw">
+  <header class="bar">
+    <button class="icon-btn" data-back="home" title="Back">‹</button>
+    <div class="bar-title">Draw your signature</div>
+    <button class="txt-btn primary" id="btnSaveSig">Save</button>
+  </header>
+
+  <div class="draw-wrap">
+    <div class="pad-hint" id="padHint">Sign here with your finger</div>
+    <canvas id="padCanvas"></canvas>
+    <div class="pad-baseline" aria-hidden="true"></div>
+  </div>
+
+  <footer class="bar bar-bottom">
+    <div class="swatches" id="inkSwatches">
+      <button class="swatch is-on" data-ink="#101317" style="--c:#101317" title="Black"></button>
+      <button class="swatch" data-ink="#12409a" style="--c:#12409a" title="Blue"></button>
+      <button class="swatch" data-ink="#8d1414" style="--c:#8d1414" title="Red"></button>
+    </div>
+    <div class="spacer"></div>
+    <button class="txt-btn" id="btnUndo">Undo</button>
+    <button class="txt-btn" id="btnClear">Clear</button>
+  </footer>
+</section>
+
+<!-- ================= DOCUMENT ================= -->
+<section class="screen" id="screen-doc">
+  <header class="bar">
+    <button class="icon-btn" data-back="home" title="Back">‹</button>
+    <div class="bar-title" id="docTitle">Document</div>
+    <button class="txt-btn primary" id="btnExport">Save</button>
+  </header>
+
+  <div class="doc-tools">
+    <button class="tool tool-hero" id="btnSignAll"><span>✨</span> Sign all lines</button>
+    <button class="tool" id="btnAddSig"><span>✍️</span> Place one</button>
+    <button class="tool" id="btnAddDate"><span>📅</span> Date</button>
+    <button class="tool" id="btnPickSig"><span>🔄</span> Signature</button>
+  </div>
+
+  <div class="scroll" id="docScroll">
+    <div id="pages"></div>
+    <div class="doc-foot" id="docFoot"></div>
+  </div>
+
+  <div class="sel-bar" id="selBar" hidden>
+    <button class="txt-btn" id="btnSelSmaller">−</button>
+    <button class="txt-btn" id="btnSelBigger">+</button>
+    <div class="spacer"></div>
+    <button class="txt-btn danger" id="btnSelDelete">Remove</button>
+    <button class="txt-btn" id="btnSelDone">Done</button>
+  </div>
+</section>
+
+<!-- ================= SHEET / DIALOG ================= -->
+<div class="sheet-scrim" id="scrim" hidden></div>
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-grab" aria-hidden="true"></div>
+  <h3 class="sheet-title" id="sheetTitle"></h3>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+<div class="busy" id="busy" hidden><div class="spin"></div><span id="busyMsg">Working…</span></div>
+
+<input type="file" id="filePick" accept="application/pdf,image/*" hidden>
+
+<script src="vendor/pdf-lib.min.js"></script>
+<script src="js/app.js" type="module"></script>
+</body>
+</html>

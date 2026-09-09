@@ -1,0 +1,11 @@
+# build output
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+*.apk
+*.aab
+
+# tooling
+node_modules/
+.DS_Store

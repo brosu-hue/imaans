@@ -1,0 +1,15 @@
+{
+  "name": "inksign",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Draw your signature once, then stamp it onto every signature line in a PDF or photo.",
+  "scripts": {
+    "serve": "node test/serve.js www 8099",
+    "fixtures": "node test/fixtures/make.js",
+    "test": "node test/e2e.js"
+  },
+  "devDependencies": {
+    "pdf-lib": "1.17.1",
+    "playwright": "^1.49.0"
+  }
+}
