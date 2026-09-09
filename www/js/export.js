@@ -1,10 +1,11 @@
-/* Flattens the placed signatures into a real PDF, then hands it to the phone.
+/* Flattens the placed signatures into real PDFs, then hands them to the phone.
    The signature becomes part of the page — there is no separate layer a viewer
    could switch off.
 
-   The output is never password protected unless you ask for one. A protected
-   document opened for signing is decrypted on the way through, so the signed
-   copy does not inherit the original's password. */
+   Several documents can be open at once, appended into one scroll. At save time
+   they either become one combined PDF or one file per document; either way each
+   source is decrypted with its own password on the way through, so nothing
+   comes out still locked unless a new password was asked for. */
 
 /* pdf-lib is 620KB and is only ever needed at the moment somebody saves, so it
    is fetched then rather than on every visit. Reading these names at module
@@ -41,20 +42,28 @@ const MAX_IMAGE_EDGE = 2400;   // plenty for a document photo, kind to phone mem
 function frame() { return new Promise(r => setTimeout(r, 0)); }
 
 /**
- * @param {object} doc      the open document
- * @param {object} [opts]   { password } to protect the result with, { onStep }
- *                          to report what is happening
- * @returns {Uint8Array} the finished PDF
+ * Builds the files to save.
+ * @param {object} doc      the open document (one or more sources)
+ * @param {object} [opts]   { combine } false to keep each source separate,
+ *                          { password } to protect every result with,
+ *                          { onStep } to report what is happening
+ * @returns {Array} [{ filename, bytes }] in scroll order
  */
-export async function buildPdf(doc, opts) {
+export async function buildOutputs(doc, opts) {
   const step = (opts && opts.onStep) || function () {};
   step('Getting the PDF tools ready…');
   await ensureLib();
-  step('Placing your signatures…');
-  const out = doc.pdf ? await fromPdf(doc) : await fromImage(doc);
-  step('Building the file…');
-  await frame();                       // let that message actually appear
-  return await finish(out, opts);
+
+  const separate = !!(opts && opts.combine === false);
+  const built = separate ? await buildSeparate(doc, step) : await buildCombined(doc, step);
+
+  const files = [];
+  for (const b of built) {
+    step(built.length > 1 ? 'Building ' + b.filename + '…' : 'Building the file…');
+    await frame();                     // let that message actually appear
+    files.push({ filename: b.filename, bytes: await finish(b.doc, opts) });
+  }
+  return files;
 }
 
 /** Applies the password the user asked for, if any, and serialises. */
@@ -68,25 +77,90 @@ async function finish(out, opts) {
   return await out.save({ useObjectStreams: false });
 }
 
-/* ---------- source was a PDF: draw onto the original, untouched pages ---------- */
+/* ---------- one file holding every source, in scroll order ---------- */
 
-async function fromPdf(doc) {
-  // Decrypt on the way in when the original was protected, so the signed copy
-  // comes out as an ordinary PDF instead of a broken or still-locked one.
-  const out = await PDFDocument.load(doc.bytes, { password: doc.password || '' });
-  const pages = out.getPages();
+async function buildCombined(doc, step) {
+  const out = await PDFDocument.create();
+  // Global page index -> the page of `out` it became. Built as the sources are
+  // copied in rather than assumed, because a stamp only knows where its page
+  // sits in the scroll and that is not where it sits in any one source.
+  const pageOf = new Map();
+
+  for (const src of doc.sources) {
+    step('Adding ' + src.name + '…');
+    if (src.bytes) {
+      // Its OWN password: each source was unlocked separately when it opened.
+      const loaded = await PDFDocument.load(src.bytes, { password: src.password || '' });
+      const copied = await out.copyPages(loaded, loaded.getPageIndices());
+      copied.forEach((p, i) => {
+        out.addPage(p);
+        if (i < src.pageCount) pageOf.set(src.firstPage + i, p);
+      });
+    } else {
+      pageOf.set(src.firstPage, await addImagePage(out, doc.pages[src.firstPage], src));
+    }
+    await frame();
+  }
+
+  step('Placing your signatures…');
+  await drawStamps(out, doc, doc.stamps, pageOf);
+  return [{ doc: out, filename: combinedName(doc) }];
+}
+
+/* ---------- one file per source, each carrying only its own signatures ---------- */
+
+async function buildSeparate(doc, step) {
+  const built = [];
+  const used = Object.create(null);
+
+  for (const src of doc.sources) {
+    const mine = doc.stamps.filter(st => {
+      const rec = doc.pages[st.page];
+      return rec && rec.sourceId === src.id;
+    });
+    // An untouched document does not need saving back out; handing someone a
+    // copy of what they already have only makes them work out which is which.
+    if (!mine.length) continue;
+
+    step('Signing ' + src.name + '…');
+    const pageOf = new Map();
+    let out;
+    if (src.bytes) {
+      out = await PDFDocument.load(src.bytes, { password: src.password || '' });
+      const pages = out.getPages();
+      for (let i = 0; i < src.pageCount && i < pages.length; i++) pageOf.set(src.firstPage + i, pages[i]);
+    } else {
+      out = await PDFDocument.create();
+      pageOf.set(src.firstPage, await addImagePage(out, doc.pages[src.firstPage], src));
+    }
+
+    await drawStamps(out, doc, mine, pageOf);
+    built.push({ doc: out, filename: unique(used, safeName(src.name) + '-signed.pdf') });
+    await frame();
+  }
+  return built;
+}
+
+/* ---------- drawing ---------- */
+
+/**
+ * Draws `stamps` onto `out`. One embedded copy of each signature image and one
+ * font serve the whole output — the same signature on forty lines is forty
+ * references to one PNG, not forty PNGs.
+ */
+async function drawStamps(out, doc, stamps, pageOf) {
   const images = new Map();
   let helv = null;
   let dropped = 0;
 
-  for (const st of doc.stamps) {
+  for (const st of stamps) {
     const rec = doc.pages[st.page];
-    const page = pages[st.page];
+    const page = pageOf.get(st.page);
     // pdf-lib and pdf.js disagreeing about the pages is rare, but saying
     // "saved" over a document with no signature on it would be far worse.
-    if (!rec || !page || !rec.vp1) { dropped++; continue; }
+    if (!rec || !page) { dropped++; continue; }
 
-    const g = geometry(rec.vp1, st);
+    const g = rec.vp1 ? geometry(rec.vp1, st) : flatGeometry(page, st);
 
     if (st.type === 'sig') {
       let img = images.get(st.png);
@@ -99,8 +173,8 @@ async function fromPdf(doc) {
       // drawText anchors on the baseline, which sits a little above the box bottom.
       const lift = g.height * 0.21;
       page.drawText(st.text, {
-        x: g.x + g.ux * 0 + g.vx * lift,
-        y: g.y + g.uy * 0 + g.vy * lift,
+        x: g.x + g.vx * lift,
+        y: g.y + g.vy * lift,
         size: g.height,
         font: helv,
         color: rgb(0.06, 0.075, 0.09),
@@ -108,12 +182,12 @@ async function fromPdf(doc) {
       });
     }
   }
+
   if (dropped) {
-    throw new Error(dropped === doc.stamps.length
+    throw new Error(dropped === stamps.length
       ? 'The signatures could not be matched to the pages of this document, so nothing was saved.'
       : dropped + ' of your signatures could not be placed on the right page, so nothing was saved.');
   }
-  return out;
 }
 
 /**
@@ -137,45 +211,34 @@ function geometry(vp1, st) {
 
   return {
     x: p0[0], y: p0[1], width, height, angle,
-    ux: (pX[0] - p0[0]) / width, uy: (pX[1] - p0[1]) / width,
     vx: (pY[0] - p0[0]) / height, vy: (pY[1] - p0[1]) / height
   };
 }
 
-/* ---------- source was a photo: wrap it in a page and stamp that ---------- */
+/** The same, for a page this app built itself around a photo: no rotation to undo. */
+function flatGeometry(page, st) {
+  const size = page.getSize();
+  const width = st.wPct * size.width;
+  const height = st.hPct * size.height;
+  return {
+    x: st.xPct * size.width,
+    y: size.height - (st.yPct * size.height) - height,
+    width, height, angle: 0, vx: 0, vy: 1
+  };
+}
 
-async function fromImage(doc) {
-  const out = await PDFDocument.create();
-  const rec = doc.pages[0];
+/* ---------- source was a photo: wrap it in a page ---------- */
 
+async function addImagePage(out, rec, src) {
   const box = rec.baseH >= rec.baseW ? { w: 595, h: 842 } : { w: 842, h: 595 };
   const fit = Math.min(box.w / rec.baseW, box.h / rec.baseH);
   const pw = rec.baseW * fit;
   const ph = rec.baseH * fit;
 
   const page = out.addPage([pw, ph]);
-  const jpeg = await out.embedJpg(await reencodeJpeg(doc.image.el, rec.baseW, rec.baseH));
+  const jpeg = await out.embedJpg(await reencodeJpeg(src.image.el, rec.baseW, rec.baseH));
   page.drawImage(jpeg, { x: 0, y: 0, width: pw, height: ph });
-
-  const images = new Map();
-  let helv = null;
-
-  for (const st of doc.stamps) {
-    const x = st.xPct * pw;
-    const w = st.wPct * pw;
-    const h = st.hPct * ph;
-    const y = ph - (st.yPct * ph) - h;
-
-    if (st.type === 'sig') {
-      let img = images.get(st.png);
-      if (!img) { img = await out.embedPng(dataUrlToBytes(st.png)); images.set(st.png, img); }
-      page.drawImage(img, { x, y, width: w, height: h });
-    } else {
-      if (!helv) helv = await out.embedFont(StandardFonts.Helvetica);
-      page.drawText(st.text, { x, y: y + h * 0.21, size: h, font: helv, color: rgb(0.06, 0.075, 0.09) });
-    }
-  }
-  return out;
+  return page;
 }
 
 /** Re-encodes through a canvas so any format the browser can show becomes an embeddable JPEG. */
@@ -196,6 +259,31 @@ async function reencodeJpeg(imgEl, w, h) {
   }
   return dataUrlToBytes(c.toDataURL('image/jpeg', 0.92));
 }
+
+/* ---------- naming ---------- */
+
+function safeName(name) { return String(name || 'document').replace(/[\\/:*?"<>|]/g, '-'); }
+
+/**
+ * What the one combined file is called: the first document, and how many others
+ * rode along with it — so a batch is recognisable in Downloads a week later.
+ */
+function combinedName(doc) {
+  const first = safeName(doc.sources.length ? doc.sources[0].name : 'document');
+  return doc.sources.length > 1
+    ? first + '-and-' + (doc.sources.length - 1) + '-more-signed.pdf'
+    : first + '-signed.pdf';
+}
+
+/** Two documents can share a name; two files in Downloads must not. */
+function unique(used, filename) {
+  if (!used[filename]) { used[filename] = 1; return filename; }
+  const n = ++used[filename];
+  const dot = filename.lastIndexOf('.');
+  return filename.slice(0, dot) + ' (' + n + ')' + filename.slice(dot);
+}
+
+/* ---------- bytes ---------- */
 
 function dataUrlToBytes(dataUrl) {
   const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
@@ -218,10 +306,10 @@ async function bytesToBase64(bytes) {
   return btoa(s);
 }
 
-/* ---------- getting the file off the app ---------- */
+/* ---------- getting the files off the app ---------- */
 
 /**
- * Saves or shares the finished PDF, using whatever the device actually supports.
+ * Saves or shares one finished PDF, using whatever the device actually supports.
  * @returns {string} what happened, for the confirmation message
  */
 export async function deliver(bytes, filename) {
@@ -250,6 +338,63 @@ export async function deliver(bytes, filename) {
   }
 
   // 3. Anything else: a normal download.
+  download(blob, filename);
+  return 'downloaded';
+}
+
+/**
+ * The same for a whole batch. Every device that can take the files in one go
+ * does — one write to Downloads, or one share sheet carrying all of them.
+ */
+export async function deliverMany(files) {
+  if (!files.length) return 'cancelled';
+  if (files.length === 1) return await deliver(files[0].bytes, files[0].filename);
+
+  const bridge = window.InkSignAndroid;
+  if (bridge && bridge.saveMany) {
+    const payload = [];
+    for (const f of files) {
+      payload.push({ filename: f.filename, mime: 'application/pdf', base64: await bytesToBase64(f.bytes) });
+    }
+    bridge.saveMany(JSON.stringify(payload));
+    return 'saved';
+  }
+  if (bridge && bridge.saveBase64) {
+    // An older shell that only knows about one file at a time.
+    for (const f of files) {
+      bridge.saveBase64(f.filename, 'application/pdf', await bytesToBase64(f.bytes));
+    }
+    return 'saved';
+  }
+
+  // Build every File BEFORE asking to share: the share has to follow closely
+  // enough on the tap that the browser still counts it as user-initiated, and
+  // encoding several documents in between is exactly the sort of pause that
+  // gets a share rejected.
+  const shareable = files.map(f => new File([f.bytes.slice().buffer], f.filename, { type: 'application/pdf' }));
+  try {
+    if (navigator.canShare && navigator.share && navigator.canShare({ files: shareable })) {
+      await navigator.share({ files: shareable, title: files.length + ' signed documents' });
+      return 'shared';
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') return 'cancelled';
+    // fall through to plain downloads
+  }
+
+  // Desktop, with no share sheet: there is no such thing as a multi-file
+  // download, so they go one at a time with a gap between them. Chrome asks
+  // once whether the site may download more than one file and then takes the
+  // lot; Safari saves the first and may quietly drop the rest, which is why
+  // the app says how many it sent so a short download folder is noticeable.
+  for (let i = 0; i < files.length; i++) {
+    download(new Blob([files[i].bytes.slice().buffer], { type: 'application/pdf' }), files[i].filename);
+    if (i < files.length - 1) await new Promise(r => setTimeout(r, 700));
+  }
+  return 'downloaded';
+}
+
+function download(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -259,5 +404,4 @@ export async function deliver(bytes, filename) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
-  return 'downloaded';
 }

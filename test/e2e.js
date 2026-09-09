@@ -48,20 +48,74 @@ async function openFile(page, file) {
   await page.waitForTimeout(2800);
 }
 
-/** Saves through the new choice sheet. Pass a password to protect the file. */
-async function saveDocument(page, password) {
-  const dl = page.waitForEvent('download', { timeout: 30000 });
+/**
+ * The whole save flow, resolving with every file the browser was handed.
+ * `how` is 'combined' or 'separate' when more than one document is open — with
+ * one there is nothing to choose and that sheet does not appear.
+ */
+async function saveAll(page, password, how) {
+  const got = [];
+  const collect = (d) => got.push(d);
+  page.on('download', collect);
+
   await page.click('#btnExport');
   await page.waitForTimeout(400);
+  if (how) {
+    await page.locator('.sheet-act',
+      { hasText: how === 'separate' ? 'Separate files' : 'One combined PDF' }).click();
+    await page.waitForTimeout(300);
+  }
   if (password) {
-    await page.locator('.sheet-act', { hasText: 'Protect it with a password' }).click();
+    await page.locator('.sheet-act', { hasText: /Protect (it|them) with a password/ }).click();
     await page.waitForTimeout(300);
     await page.locator('.pw-input').fill(password);
     await page.locator('.sheet-act', { hasText: 'Save with this password' }).click();
   } else {
     await page.locator('.sheet-act', { hasText: 'Save without a password' }).click();
   }
-  return await dl;
+
+  // Several files are downloaded one at a time with a gap between them, so wait
+  // until the count stops moving rather than for a fixed number of events.
+  const deadline = Date.now() + 40000;
+  let seen = -1;
+  while (Date.now() < deadline) {
+    if (got.length && got.length === seen) break;
+    seen = got.length;
+    await page.waitForTimeout(1100);
+  }
+  page.off('download', collect);
+  return got;
+}
+
+/** Saves through the choice sheet. Pass a password to protect the file. */
+async function saveDocument(page, password, how) {
+  return (await saveAll(page, password, how))[0];
+}
+
+/**
+ * Scrolls a page into view and lets it render. Pages far from the viewport have
+ * their bitmap dropped to save memory, so one must be looked at before its ink
+ * can be counted.
+ */
+async function showPage(page, i) {
+  await page.evaluate((n) => {
+    const el = document.querySelectorAll('.page')[n];
+    document.getElementById('docScroll').scrollTop = el.offsetTop;
+  }, i);
+  await page.waitForTimeout(1800);
+}
+
+/** Taps a point on a page, scrolling it into the middle of the screen first. */
+async function tapPage(page, pageIndex, xPct, yPct) {
+  await page.evaluate(({ i, y }) => {
+    const el = document.querySelectorAll('.page')[i];
+    const sc = document.getElementById('docScroll');
+    sc.scrollTop = el.offsetTop + el.clientHeight * y - sc.clientHeight / 2;
+  }, { i: pageIndex, y: yPct });
+  await page.waitForTimeout(600);
+  const b = await page.locator('.page').nth(pageIndex).boundingBox();
+  await page.mouse.click(b.x + b.width * xPct, b.y + b.height * yPct);
+  await page.waitForTimeout(400);
 }
 
 async function backToHome(page) {
@@ -547,11 +601,14 @@ async function testAndroidShell(browser) {
     isMobile:true, hasTouch:true });
   // Stand in for the JavascriptInterface the APK installs.
   await ctx.addInitScript(() => {
-    window.__android = { saved: null, shared: 0 };
+    window.__android = { saved: null, shared: 0, batch: null, sharedMany: 0 };
     window.__android.readyCalls = 0;
     window.InkSignAndroid = {
       saveBase64: (n, m, b) => { window.__android.saved = { n, m, b64: b.slice(0, 8) }; },
+      saveMany: (json) => { window.__android.batch = JSON.parse(json); },
       shareLast: () => { window.__android.shared++; },
+      shareMany: () => { window.__android.sharedMany++; },
+      savedCount: () => (window.__android.batch || []).length,
       canShare: () => !!window.__android.saved,
       ready: () => { window.__android.readyCalls++; }
     };
@@ -623,6 +680,275 @@ async function testAndroidShell(browser) {
   await page.evaluate(() => window.inkSignBack());
   await page.waitForTimeout(400);
   ok('leaving after saving does not ask again', await page.locator('#sheet').isHidden());
+
+  // Several files must reach the shell as one batch: one write to Downloads and
+  // one toast, rather than a queue of them stacked over the app.
+  await page.setInputFiles('#filePick', [path.join(FIX, 'agreement.pdf'), path.join(FIX, 'receipt.pdf')]);
+  await page.waitForTimeout(5000);
+  await page.click('#btnSignAll');
+  await page.waitForTimeout(7000);
+  await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
+  await page.waitForTimeout(1200);
+  await page.click('#btnExport');
+  await page.waitForTimeout(400);
+  await page.locator('.sheet-act', { hasText: 'Separate files' }).click();
+  await page.waitForTimeout(300);
+  await page.locator('.sheet-act', { hasText: 'Save without a password' }).click();
+  await page.waitForTimeout(6000);
+
+  const batch = await page.evaluate(() => window.__android.batch);
+  eq('several files go to the shell in one batch', batch && batch.length, 2);
+  ok('each named after its own document, with real PDF bytes',
+     !!batch && batch[0].filename === 'agreement-signed.pdf' &&
+     batch[1].filename === 'receipt-signed.pdf' &&
+     Buffer.from(batch[0].base64.slice(0, 8), 'base64').toString('latin1').startsWith('%PDF-'),
+     JSON.stringify(batch && batch.map(b => b.filename)));
+
+  await page.locator('.sheet-act', { hasText: 'Send them' }).click();
+  await page.waitForTimeout(300);
+  eq('and one share sheet carries them all',
+     await page.evaluate(() => window.__android.sharedMany), 1);
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+/* ---------- several documents at once ---------- */
+
+/* The signing strips of the two fixtures, in PDF points on an 842pt page. */
+const AGREEMENT_SPOT = { x: 65, y: 474, w: 220, h: 34 };   // "Signature of Customer"
+const RECEIPT_SPOT = { x: 65, y: 404, w: 220, h: 34 };     // the receipt's one line
+const RECEIPT_LINE = { x: 150 / 595, y: 1 - 400 / 842 };   // the same line, as a tap target
+
+function phone(browser) {
+  return browser.newContext({ viewport:{width:375,height:667}, deviceScaleFactor:2,
+    isMobile:true, hasTouch:true, acceptDownloads:true });
+}
+
+async function testAddingASecondDocument(browser) {
+  console.log('\nAdding a second document to what is already open');
+  const ctx = await phone(browser);
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await drawAndSaveSignature(page);
+  await openFile(page, path.join(FIX, 'agreement.pdf'));
+
+  await page.click('#btnSignAll');
+  await page.waitForTimeout(5000);
+  await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
+  await page.waitForTimeout(900);
+  eq('the first document is signed', await page.locator('.stamp').count(), 5);
+
+  // The tool strip's own way in, so the button really is wired to the picker.
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser'),
+    page.click('#btnAddDoc')
+  ]);
+  ok('the picker takes more than one file at a time', chooser.isMultiple());
+  await chooser.setFiles(path.join(FIX, 'receipt.pdf'));
+  await page.waitForTimeout(3000);
+
+  eq('its page appends below the first document', await page.locator('.page').count(), 3);
+  eq('and every signature already placed is still there', await page.locator('.stamp').count(), 5);
+  eq('the title says what is open', await page.locator('#docTitle').textContent(), 'agreement + 1 more');
+  const foot = await page.locator('#docFoot').textContent();
+  ok('the footer counts the pages of both', /3 pages from 2 documents/.test(foot), foot);
+
+  // Sign the second document's line by tapping it.
+  await tapPage(page, 2, RECEIPT_LINE.x, RECEIPT_LINE.y - 0.01);
+  await page.locator('.tapmenu-item', { hasText: 'Add signature' }).click();
+  await page.waitForTimeout(1200);
+  eq('the second document can be signed too', await page.locator('.stamp').count(), 6);
+  eq('and that signature sits on its own page', await page.evaluate(
+    () => document.querySelectorAll('.page')[2].querySelectorAll('.stamp').length), 1);
+
+  const files = await saveAll(page, null, 'combined');
+  eq('combining gives exactly one file', files.length, 1);
+  eq('named after the first document and how many rode along',
+     files[0].suggestedFilename(), 'agreement-and-1-more-signed.pdf');
+  const out = path.join(SHOTS, 'combined-signed.pdf');
+  await files[0].saveAs(out);
+  await page.waitForTimeout(600);
+
+  await backToHome(page);
+  await openFile(page, out);
+  eq('the combined file holds every page', await page.locator('.page').count(), 3);
+  const a = await inkInRegion(page, 0, AGREEMENT_SPOT, 842);
+  ok('the first document is signed in the combined file', a > 60, 'dark pixels: ' + a);
+  await showPage(page, 2);
+  const r = await inkInRegion(page, 2, RECEIPT_SPOT, 842);
+  ok('and so is the page that came from the second', r > 60, 'dark pixels: ' + r);
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+async function testKeepingDocumentsSeparate(browser) {
+  console.log('\nOpening two at once and keeping them separate');
+  const ctx = await phone(browser);
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await drawAndSaveSignature(page);
+
+  // Both picked in one go, in this order.
+  await page.setInputFiles('#filePick', [path.join(FIX, 'agreement.pdf'), path.join(FIX, 'receipt.pdf')]);
+  await page.waitForTimeout(5000);
+  eq('two files picked together open into one scroll', await page.locator('.page').count(), 3);
+  eq('in the order they were picked', await page.locator('#docTitle').textContent(), 'agreement + 1 more');
+
+  await page.click('#btnSignAll');
+  await page.waitForTimeout(7000);
+  eq('the lines of both documents are found in one pass',
+     await page.locator('#sheetTitle').textContent(), '6 signature lines found');
+  await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
+  await page.waitForTimeout(1200);
+  eq('and all six are signed', await page.locator('.stamp').count(), 6);
+
+  const files = await saveAll(page, null, 'separate');
+  eq('keeping them separate gives a file each', files.length, 2);
+  const names = files.map(f => f.suggestedFilename());
+  ok('each named after its own document',
+     names[0] === 'agreement-signed.pdf' && names[1] === 'receipt-signed.pdf', JSON.stringify(names));
+
+  const first = path.join(SHOTS, 'sep-agreement.pdf');
+  const second = path.join(SHOTS, 'sep-receipt.pdf');
+  await files[0].saveAs(first);
+  await files[1].saveAs(second);
+  await page.waitForTimeout(600);
+
+  await backToHome(page);
+  await openFile(page, first);
+  eq('the first file holds only its own pages', await page.locator('.page').count(), 2);
+  const a = await inkInRegion(page, 0, AGREEMENT_SPOT, 842);
+  ok('and carries its own signatures', a > 60, 'dark pixels: ' + a);
+
+  await backToHome(page);
+  await openFile(page, second);
+  eq('the second file holds only its own page', await page.locator('.page').count(), 1);
+  const r = await inkInRegion(page, 0, RECEIPT_SPOT, 842);
+  ok('and carries the signature that was placed on it', r > 60, 'dark pixels: ' + r);
+  const empty = await inkInRegion(page, 0, AGREEMENT_SPOT, 842);
+  eq('with nothing borrowed from the other document', empty, 0);
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+async function testAPdfAndAPhoto(browser) {
+  console.log('\nA PDF and a photo, signed together');
+  const ctx = await phone(browser);
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+
+  // The same "photo of a form" the single-document test uses.
+  const jpeg = await page.evaluate(async () => {
+    const pdfjs = await import('./vendor/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.mjs';
+    const res = await fetch('fixtures/receipt.pdf');
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(await res.arrayBuffer()),
+      standardFontDataUrl: 'vendor/standard_fonts/' }).promise;
+    const p = await doc.getPage(1);
+    const vp = p.getViewport({ scale: 2 });
+    const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+    const ctx2 = c.getContext('2d');
+    ctx2.fillStyle = '#fff'; ctx2.fillRect(0, 0, c.width, c.height);
+    await p.render({ canvasContext: ctx2, viewport: vp }).promise;
+    return c.toDataURL('image/jpeg', 0.9);
+  });
+  const jpgPath = path.join(SHOTS, 'receipt-photo.jpg');
+  fs.writeFileSync(jpgPath, Buffer.from(jpeg.split(',')[1], 'base64'));
+
+  await drawAndSaveSignature(page);
+  await page.setInputFiles('#filePick', [path.join(FIX, 'agreement.pdf'), jpgPath]);
+  await page.waitForTimeout(5000);
+  eq('a PDF and a photo open into one scroll', await page.locator('.page').count(), 3);
+
+  await page.click('#btnSignAll');
+  await page.waitForTimeout(7000);
+  await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
+  await page.waitForTimeout(1200);
+
+  // A photo has no text to read, so its line is never one of the labelled ones
+  // the review sheet preselects; it gets signed by tapping it instead.
+  await tapPage(page, 2, RECEIPT_LINE.x, RECEIPT_LINE.y - 0.01);
+  await page.locator('.tapmenu-item', { hasText: 'Add signature' }).click();
+  await page.waitForTimeout(1200);
+  const onPhoto = await page.evaluate(
+    () => document.querySelectorAll('.page')[2].querySelectorAll('.stamp').length);
+  eq('the photo gets signed alongside the PDF', onPhoto, 1);
+
+  const files = await saveAll(page, null, 'combined');
+  eq('they combine into one file', files.length, 1);
+  const out = path.join(SHOTS, 'pdf-and-photo-signed.pdf');
+  await files[0].saveAs(out);
+  await page.waitForTimeout(600);
+
+  await backToHome(page);
+  await openFile(page, out);
+  eq('which holds the PDF pages and the photo page', await page.locator('.page').count(), 3);
+  const a = await inkInRegion(page, 0, AGREEMENT_SPOT, 842);
+  ok('the PDF page is signed', a > 60, 'dark pixels: ' + a);
+  await showPage(page, 2);
+  // The photo becomes a page of its own proportions, so measure it in fractions.
+  const r = await inkInPct(page, 2, { left: 65 / 595, top: 1 - 438 / 842, width: 220 / 595, height: 34 / 842 });
+  ok('and so is the photo', r > 40, 'dark pixels: ' + r);
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+async function testALockedOneAmongSeveral(browser) {
+  console.log('\nA password-protected document among several');
+  const ctx = await phone(browser);
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
+
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await drawAndSaveSignature(page);
+
+  await page.setInputFiles('#filePick', [path.join(FIX, 'agreement.pdf'), path.join(FIX, 'locked.pdf')]);
+  await page.waitForTimeout(5000);
+  eq('the locked one stops to ask', await page.locator('.pw-input').count(), 1);
+  const note = await page.locator('#sheetBody p').first().textContent();
+  ok('and says which file it is asking about', note.indexOf('locked') !== -1, note);
+
+  await page.locator('.pw-input').fill('letmein');
+  await page.locator('.sheet-act', { hasText: 'Open' }).click();
+  await page.waitForTimeout(5000);
+  eq('the right password lets it join the others', await page.locator('.page').count(), 4);
+
+  await page.click('#btnSignAll');
+  await page.waitForTimeout(8000);
+  await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
+  await page.waitForTimeout(1200);
+
+  const files = await saveAll(page, null, 'separate');
+  eq('both come out as their own file', files.length, 2);
+  const paths = [path.join(SHOTS, 'mixed-agreement.pdf'), path.join(SHOTS, 'mixed-locked.pdf')];
+  await files[0].saveAs(paths[0]);
+  await files[1].saveAs(paths[1]);
+  eq('named after the locked document', files[1].suggestedFilename(), 'locked-signed.pdf');
+  ok('and it comes out unlocked, decrypted with its own password',
+     !fs.readFileSync(paths[1]).includes('/Encrypt'), 'the output is still encrypted');
+  ok('the other one is a real PDF too',
+     fs.readFileSync(paths[0]).slice(0, 5).toString() === '%PDF-');
+
+  await page.waitForTimeout(400);
+  await backToHome(page);
+  await openFile(page, paths[1]);
+  eq('the signed copy reopens with no password', await page.locator('.page').count(), 2);
+  const ink = await inkInRegion(page, 0, AGREEMENT_SPOT, 842);
+  ok('and the signature is baked into it', ink > 60, 'dark pixels: ' + ink);
+
   ok('no console errors', errs.length === 0, errs.join(' | '));
   await ctx.close();
 }
@@ -654,6 +980,10 @@ async function testAndroidShell(browser) {
     await testPhotoOfAForm(browser);
     await testProtectedDocuments(browser);
     await testLockedDocument(browser);
+    await testAddingASecondDocument(browser);
+    await testKeepingDocumentsSeparate(browser);
+    await testAPdfAndAPhoto(browser);
+    await testALockedOneAmongSeveral(browser);
     await testLayout(browser);
     await testSignatureIsRemembered(browser);
     await testAndroidStore(browser);

@@ -40,7 +40,7 @@
     <div class="tiles">
       <button class="tile tile-primary" id="tileOpen">
         <span class="tile-ico">📄</span>
-        <span class="tile-txt"><b>Open a document</b><small>PDF, photo or scan</small></span>
+        <span class="tile-txt"><b>Open a document</b><small>PDF, photo or scan — pick several</small></span>
       </button>
       <button class="tile" id="tileDraw">
         <span class="tile-ico">✍️</span>
@@ -99,6 +99,7 @@
     <button class="tool tool-hero" id="btnSignAll"><span>✨</span> Sign all lines</button>
     <button class="tool" id="btnAddSig"><span>✍️</span> Place by tapping</button>
     <button class="tool" id="btnPickSig"><span>🔄</span> Signature</button>
+    <button class="tool" id="btnAddDoc"><span>➕</span> Add document</button>
   </div>
 
   <div class="scroll" id="docScroll">
@@ -129,7 +130,8 @@
   <button class="txt-btn busy-cancel" id="busyCancel" hidden>Cancel</button>
 </div>
 
-<input type="file" id="filePick" accept="application/pdf,image/*" hidden>
+<!-- Several at once: their pages append into one scroll and are signed together. -->
+<input type="file" id="filePick" accept="application/pdf,image/*" multiple hidden>
 
 <!-- pdf-lib is loaded by export.js the first time something is saved. -->
 <script src="js/app.js" type="module"></script>

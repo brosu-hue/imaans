@@ -1,5 +1,8 @@
-/* Loading, rendering and stamping a document.
-   A document is either a PDF (rendered with pdf.js) or a single image. */
+/* Loading, rendering and stamping documents.
+   A source is either a PDF (rendered with pdf.js) or a single image. Several
+   can be open at once: their pages append into one continuous scroll so a batch
+   is signed in one sitting, and each source keeps its own bytes and password so
+   export can put every page back where it belongs. */
 
 import * as pdfjsLib from '../vendor/pdf.min.mjs';
 import { detectSignatureLines } from './detect.js';
@@ -26,14 +29,15 @@ const nextId = () => 'k' + (++uid);
 export class SignDoc {
   constructor(host) {
     this.host = host;            // the #pages element
+    /* One source per opened file: {id,name,bytes,pdf,image,password,pageCount,firstPage}. */
+    this.sources = [];
+    /* Every page of every source, in scroll order. Deliberately flat: stamps,
+       detected lines and the eviction sweep are all keyed on a position in this
+       list, so appending a document leaves all of them alone. Each record knows
+       which source it came from, and where it sits inside it. */
     this.pages = [];
     this.stamps = [];
-    this.pdf = null;
-    this.bytes = null;           // original PDF bytes, for export
-    this.image = null;           // {el,w,h} when the source is a picture
-    this.name = 'document';
     this.dirty = false;          // true once there is unsaved ink on the page
-    this.password = '';          // set when the original was password protected
     this.onSelect = () => {};
     this.onTap = () => {};
     this.destroyed = false;      // set by destroy(); results that arrive later are stale
@@ -43,40 +47,75 @@ export class SignDoc {
     this._stopFind = false;
   }
 
+  /** What to call the whole scroll: the first document, and how many followed. */
+  get title() {
+    if (!this.sources.length) return 'Document';
+    const first = this.sources[0].name;
+    return this.sources.length === 1
+      ? first
+      : first + ' + ' + (this.sources.length - 1) + ' more';
+  }
+
+  /** The document everything is named after. */
+  get name() { return this.sources.length ? this.sources[0].name : 'document'; }
+
   /* ================= loading ================= */
 
   /**
    * Asked for the password of a protected document. Return the password, or
-   * null to give up. Replaced by the app; refusing by default keeps the
-   * loader honest if nobody sets one.
+   * null to give up. Gets the file's name, because several documents may be
+   * opening at once and "this document is locked" would not say which.
+   * Replaced by the app; refusing by default keeps the loader honest if nobody
+   * sets one.
    */
   onPasswordNeeded() { return Promise.resolve(null); }
 
-  async load(file, onProgress) {
-    this.name = (file.name || 'document').replace(/\.[^.]+$/, '');
+  /**
+   * Opens one more file and appends its pages below whatever is already there.
+   * Existing pages keep their positions, so every stamp already placed stays
+   * exactly where it was put.
+   * @returns the source record that was added
+   */
+  async addSource(file, onProgress) {
+    const src = {
+      id: 'src' + (++uid),
+      name: (file.name || 'document').replace(/\.[^.]+$/, ''),
+      bytes: null,
+      pdf: null,
+      image: null,        // {el,w,h,url} when this source is a picture
+      password: '',       // set when this file was password protected
+      pageCount: 0,
+      firstPage: this.pages.length   // where its pages start in the scroll
+    };
     const buf = await file.arrayBuffer();
     const isPdf = /pdf$/i.test(file.type) || /\.pdf$/i.test(file.name || '') || looksLikePdf(buf);
 
     if (isPdf) {
-      this.bytes = new Uint8Array(buf);
-      this.pdf = await this._openPdf();
+      src.bytes = new Uint8Array(buf);
+      src.pdf = await this._openPdf(src);
+      // Registered before any page is built, so destroy() owns the pdf.js
+      // worker from the first moment there is one to shut down.
+      this.sources.push(src);
       // A page at a time means N round trips to the worker before anything is
       // on screen; a handful at a time keeps the wait roughly one round trip.
-      const total = this.pdf.numPages;
+      const total = src.pdf.numPages;
       const BATCH = 4;
       for (let i = 1; i <= total; i += BATCH) {
+        if (this.destroyed) throw cancelled();
         const nums = [];
         for (let n = i; n < i + BATCH && n <= total; n++) nums.push(n);
-        const got = await Promise.all(nums.map(n => this.pdf.getPage(n)));
-        got.forEach(pg => this._addPdfPage(pg));
+        const got = await Promise.all(nums.map(n => src.pdf.getPage(n)));
+        got.forEach(pg => this._addPdfPage(src, pg));
         if (onProgress) onProgress(Math.min(i + BATCH - 1, total), total);
       }
     } else {
       const img = await loadImage(buf, file.type || 'image/jpeg');
-      this.image = img;
-      this._addImagePage(img);
+      src.image = img;
+      this.sources.push(src);
+      this._addImagePage(src, img);
     }
-    return this.pages.length;
+    src.pageCount = this.pages.length - src.firstPage;
+    return src;
   }
 
   /**
@@ -84,23 +123,23 @@ export class SignDoc {
    * Many "protected" documents carry an owner password only and open with an
    * empty one, so nobody should be prompted for those.
    */
-  async _openPdf() {
+  async _openPdf(src) {
     // pdf.js transfers the buffer it is given, so hand it its own copy.
     const task = pdfjsLib.getDocument({
-      data: this.bytes.slice(),
-      password: this.password,
+      data: src.bytes.slice(),
+      password: src.password,
       standardFontDataUrl: STANDARD_FONTS,
       isEvalSupported: false
     });
 
     task.onPassword = (retry, reason) => {
       const wrong = reason === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD;
-      Promise.resolve(this.onPasswordNeeded(wrong)).then((pw) => {
+      Promise.resolve(this.onPasswordNeeded(wrong, src.name)).then((pw) => {
         if (pw === null || pw === undefined) {
           task.destroy();
           return;
         }
-        this.password = pw;
+        src.password = pw;
         retry(pw);
       });
     };
@@ -108,21 +147,21 @@ export class SignDoc {
     return await task.promise;
   }
 
-  _addPdfPage(page) {
+  _addPdfPage(src, page) {
     const vp1 = page.getViewport({ scale: 1 });
-    const rec = this._makePage(vp1.width, vp1.height);
+    const rec = this._makePage(src, vp1.width, vp1.height);
     rec.pdfPage = page;
     rec.vp1 = vp1;
     this.pages.push(rec);
   }
 
-  _addImagePage(img) {
-    const rec = this._makePage(img.w, img.h);
+  _addImagePage(src, img) {
+    const rec = this._makePage(src, img.w, img.h);
     rec.bitmap = img.el;
     this.pages.push(rec);
   }
 
-  _makePage(baseW, baseH) {
+  _makePage(src, baseW, baseH) {
     const el = document.createElement('div');
     el.className = 'page';
     el.style.aspectRatio = baseW + ' / ' + baseH;
@@ -141,8 +180,11 @@ export class SignDoc {
     this.host.appendChild(el);
 
     const rec = {
-      idx: this.pages.length, el, canvas, layer,
-      baseW, baseH, rendered: false, rendering: null,
+      idx: this.pages.length,               // where it sits in the whole scroll
+      sourceId: src.id,
+      srcIdx: this.pages.length - src.firstPage,   // and in its own document
+      el, canvas, layer,
+      baseW, baseH, rendered: false, rendering: null, watched: false,
       textItems: null, hits: null, vp: null, vp1: null, pdfPage: null, bitmap: null
     };
     this._bindPage(rec);
@@ -242,7 +284,12 @@ export class SignDoc {
     }
   }
 
-  /** Renders whatever is on screen now, and keeps doing so as you scroll. */
+  /**
+   * Renders whatever is on screen now, and keeps doing so as you scroll.
+   * Call it again after appending a document: it picks up the pages that are
+   * not being watched yet and leaves the rest — and the set of visible pages —
+   * exactly as they were.
+   */
   watchViewport(scroller) {
     const render = (rec) => { this.ensureRendered(rec).catch(() => {}); };
 
@@ -250,23 +297,26 @@ export class SignDoc {
       this.pages.forEach(render);
       return;
     }
-    this._visible = new Set();
-    const io = new IntersectionObserver((entries) => {
-      for (const e of entries) {
-        const idx = Number(e.target.dataset.idx);
-        const rec = this.pages[idx];
-        if (!rec) continue;
-        if (e.isIntersecting) { this._visible.add(idx); render(rec); }
-        else this._visible.delete(idx);
-      }
-      this._sweep();
-    }, { root: scroller, rootMargin: '400px 0px' });
+    if (!this._io) {
+      this._visible = new Set();
+      this._io = new IntersectionObserver((entries) => {
+        for (const e of entries) {
+          const idx = Number(e.target.dataset.idx);
+          const rec = this.pages[idx];
+          if (!rec) continue;
+          if (e.isIntersecting) { this._visible.add(idx); render(rec); }
+          else this._visible.delete(idx);
+        }
+        this._sweep();
+      }, { root: scroller, rootMargin: '400px 0px' });
+    }
 
-    this.pages.forEach((rec, i) => {
-      rec.el.dataset.idx = String(i);
-      io.observe(rec.el);
-    });
-    this._io = io;
+    for (const rec of this.pages) {
+      if (rec.watched) continue;
+      rec.watched = true;
+      rec.el.dataset.idx = String(rec.idx);
+      this._io.observe(rec.el);
+    }
   }
 
   /** Everything the document is holding: bitmaps, the pdf.js worker, the DOM. */
@@ -276,13 +326,18 @@ export class SignDoc {
     this._stopFind = true;
     if (this._io) { this._io.disconnect(); this._io = null; }
     for (const rec of this.pages) this.evict(rec);
-    if (this.pdf) { try { this.pdf.destroy(); } catch (_) {} this.pdf = null; }
-    if (this.image && this.image.url) { try { URL.revokeObjectURL(this.image.url); } catch (_) {} }
+    // Every source brought its own pdf.js worker and possibly its own object
+    // URL; leaving one behind leaks a worker per document opened.
+    for (const src of this.sources) {
+      if (src.pdf) { try { src.pdf.destroy(); } catch (_) {} src.pdf = null; }
+      if (src.image && src.image.url) { try { URL.revokeObjectURL(src.image.url); } catch (_) {} }
+      src.image = null;
+      src.bytes = null;
+    }
     this.host.innerHTML = '';
+    this.sources = [];
     this.pages = [];
     this.stamps = [];
-    this.bytes = null;
-    this.image = null;
     this._sel = null;
     this._hitEls = [];
   }

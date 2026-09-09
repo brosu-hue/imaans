@@ -46,6 +46,20 @@ async function agreement() {
   fs.writeFileSync(path.join(OUT, 'agreement.pdf'), await d.save());
 }
 
+/* A short second document, so a batch of two has an obvious "other one": one
+   page, one signing line, at coordinates the test can check ink against. */
+async function receipt() {
+  const d = await PDFDocument.create();
+  const f = await d.embedFont(StandardFonts.Helvetica);
+  const b = await d.embedFont(StandardFonts.HelveticaBold);
+  const p = d.addPage([595, 842]);
+  p.drawText('DELIVERY RECEIPT', { x: 60, y: 780, size: 18, font: b, color: rgb(.05,.05,.05) });
+  p.drawText('Goods received in good order and condition.', { x: 60, y: 740, size: 11, font: f, color: rgb(.05,.05,.05) });
+  p.drawLine({ start: { x: 60, y: 400 }, end: { x: 290, y: 400 }, thickness: 1, color: rgb(.1,.1,.1) });
+  p.drawText('Signature', { x: 60, y: 385, size: 9, font: f, color: rgb(.1,.1,.1) });
+  fs.writeFileSync(path.join(OUT, 'receipt.pdf'), await d.save());
+}
+
 async function rotated() {
   // Landscape content on a page a viewer must turn 90 degrees to show upright.
   const d = await PDFDocument.create();
@@ -108,6 +122,7 @@ async function longDocument() {
 
 (async () => {
   await agreement();
+  await receipt();
   await rotated();
   await protectedCopy();
   await lockedCopy();

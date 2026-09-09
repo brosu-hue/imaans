@@ -1,5 +1,5 @@
 import { SignaturePad } from './pad.js';
-import { buildPdf, deliver } from './export.js';
+import { buildOutputs, deliverMany } from './export.js';
 import {
   hydrate, keepStorage, storageWorks,
   listSignatures, addSignature, deleteSignature,
@@ -374,56 +374,27 @@ function warnNotKept() {
 /* ================= opening a document ================= */
 
 $('filePick').addEventListener('change', async (e) => {
-  const file = e.target.files && e.target.files[0];
+  const files = [].slice.call(e.target.files || []);
   e.target.value = '';
-  if (!file) return;
-  await openDocument(file);
+  if (!files.length) return;
+  await openDocuments(files);
 });
 
-async function openDocument(file) {
-  discardDoc();
-  busy('Opening…');
-  let mine = null;
-  try {
-    const Doc = await docModule();
-    mine = doc = new Doc($('pages'));
-    doc.onSelect = onStampSelected;
-    doc.onTap = onPageTapped;
-    doc.onPasswordNeeded = (wrong) => {
-      idle();
-      return askPassword({
-        title: wrong ? 'That password did not work' : 'This document is locked',
-        note: 'Enter the password used to open it. It is only used on this phone.',
-        confirm: 'Open'
-      }).then((pw) => { if (pw !== null) busy('Opening…'); return pw; });
-    };
-    const n = await doc.load(file, (i, total) => busy('Opening page ' + i + ' of ' + total + '…'));
-    if (doc !== mine) { mine.destroy(); return; }   // closed, or another file arrived
-    $('docTitle').textContent = doc.name;
-    $('docFoot').textContent = n + (n === 1 ? ' page' : ' pages') +
-      ' · tap the page to add a signature';
-    noteRecent(doc.name, n);
-    renderHome();
-    show('doc');
-    $('docScroll').scrollTop = 0;
-    doc.watchViewport($('docScroll'));
-    // Work out the first page's lines now, so the first tap can snap to one
-    // without the user waiting for it.
-    mine.hitsFor(mine.pages[0]).catch(() => {});
-  } catch (err) {
-    if (mine && doc !== mine) { mine.destroy(); return; }
-    discardDoc();
-    show('home');
-    sheet({
-      title: 'That file would not open',
-      note: (err && err.message) || 'The file may be damaged, or password protected.',
-      actions: [{ label: 'OK', cls: 'primary' }]
-    });
-    return;
-  } finally {
-    idle();
+/**
+ * Opens files one after another, in the order they were picked.
+ * From the document screen they append below what is already open, signatures
+ * and all; from anywhere else they start a fresh scroll.
+ */
+async function openDocuments(files) {
+  if (!screens.doc.classList.contains('is-active')) discardDoc();
+  for (const file of files) {
+    const added = await addDocument(file);
+    // The first file failing leaves nothing to add to, so there is no point
+    // grinding through the rest; once something is open, one bad file in a
+    // batch should not throw the batch away.
+    if (!added && !doc) break;
   }
-  if (!activeSignature()) {
+  if (doc && doc.pages.length && !activeSignature()) {
     sheet({
       title: 'Draw your signature',
       note: 'You have not saved a signature yet. Draw it once and it will be reused every time.',
@@ -431,6 +402,79 @@ async function openDocument(file) {
     });
   }
 }
+
+/** @returns true if the file's pages joined the scroll. */
+async function addDocument(file) {
+  const appending = !!doc;
+  let mine = doc;
+  busy('Opening…');
+  try {
+    if (!mine) {
+      const Doc = await docModule();
+      mine = doc = new Doc($('pages'));
+      doc.onSelect = onStampSelected;
+      doc.onTap = onPageTapped;
+      doc.onPasswordNeeded = (wrong, name) => {
+        idle();
+        return askPassword({
+          title: wrong ? 'That password did not work' : 'This document is locked',
+          // Several files may be opening in a row, so the sheet has to name the
+          // one it is asking about or the password goes to the wrong document.
+          note: (name ? '“' + name + '” needs a password. ' : '') +
+                'Enter the password used to open it. It is only used on this phone.',
+          confirm: 'Open'
+        }).then((pw) => { if (pw !== null) busy('Opening…'); return pw; });
+      };
+    }
+    const src = await mine.addSource(file, (i, total) => busy('Opening page ' + i + ' of ' + total + '…'));
+    if (doc !== mine) { mine.destroy(); return false; }   // closed while it loaded
+    describeDoc();
+    noteRecent(src.name, src.pageCount);
+    renderHome();
+    show('doc');
+    // Appended pages are worth showing off: land on the first of them rather
+    // than leaving the user to wonder whether the file arrived at all.
+    const first = mine.pages[src.firstPage];
+    $('docScroll').scrollTop = appending && first ? first.el.offsetTop : 0;
+    mine.watchViewport($('docScroll'));
+    if (appending) toast('Added ' + src.name + ' — ' + pageWord(src.pageCount) + '.');
+    // Work out the new document's first page lines now, so the first tap there
+    // can snap to one without the user waiting for it.
+    if (first) mine.hitsFor(first).catch(() => {});
+    return true;
+  } catch (err) {
+    if (mine && doc !== mine) { mine.destroy(); return false; }
+    if (appending && doc && doc.pages.length) {
+      // Keep everything already open and signed; just say this one failed.
+      toast('“' + (file.name || 'That file') + '” would not open.', 3600);
+      return false;
+    }
+    discardDoc();
+    show('home');
+    sheet({
+      title: 'That file would not open',
+      note: (err && err.message) || 'The file may be damaged, or password protected.',
+      actions: [{ label: 'OK', cls: 'primary' }]
+    });
+    return false;
+  } finally {
+    idle();
+  }
+}
+
+function pageWord(n) { return n + (n === 1 ? ' page' : ' pages'); }
+
+/** Keeps the title and the footer in step with what is actually open. */
+function describeDoc() {
+  if (!doc) return;
+  $('docTitle').textContent = doc.title;
+  const n = doc.sources.length;
+  $('docFoot').textContent = pageWord(doc.pages.length) +
+    (n > 1 ? ' from ' + n + ' documents' : '') +
+    ' · tap the page to add a signature';
+}
+
+$('btnAddDoc').addEventListener('click', () => $('filePick').click());
 
 /* ================= placing by tapping ================= */
 
@@ -670,24 +714,63 @@ $('btnSelDone').addEventListener('click', () => doc && doc.select(null));
 
 /* ================= saving ================= */
 
+/** How many of the open documents actually have something on them. */
+function signedSources() {
+  if (!doc) return [];
+  const ids = {};
+  doc.stamps.forEach(st => {
+    const rec = doc.pages[st.page];
+    if (rec) ids[rec.sourceId] = true;
+  });
+  return doc.sources.filter(s => ids[s.id]);
+}
+
 function exportDoc() {
   if (!doc) return;
   if (!doc.stamps.length) {
     toast('Nothing has been signed yet.');
     return;
   }
+  // One document has nothing to choose between, so it goes straight to the
+  // password question rather than being marched through a wizard.
+  if (doc.sources.length < 2) { askHowToProtect({ combine: true }); return; }
+
+  const signed = signedSources().length;
   sheet({
-    title: 'Save the signed document',
-    note: 'A password is optional. Without one it opens like any normal PDF.',
+    title: 'Save ' + doc.sources.length + ' documents',
+    note: 'They can go out as one combined file, or as one file per document.' +
+          (signed < doc.sources.length
+            ? ' Kept separate, only the ' + signed + ' you have signed are saved.'
+            : ''),
     actions: [
-      { label: 'Save without a password', cls: 'primary', fn: () => runExport(null) },
-      { label: 'Protect it with a password', fn: askForExportPassword },
+      { label: 'One combined PDF', cls: 'primary', fn: () => askHowToProtect({ combine: true }) },
+      { label: 'Separate files (' + signed + ')', fn: () => askHowToProtect({ combine: false }) },
       { label: 'Cancel' }
     ]
   });
 }
 
-async function askForExportPassword() {
+/**
+ * The password question, asked ONCE however many files are being written — one
+ * password per file would be a form to fill in, not a save.
+ */
+function askHowToProtect(opts) {
+  const many = !opts.combine && signedSources().length > 1;
+  sheet({
+    title: many ? 'Save the signed documents' : 'Save the signed document',
+    note: many
+      ? 'A password is optional, and the same one is used for every file.'
+      : 'A password is optional. Without one it opens like any normal PDF.',
+    actions: [
+      { label: 'Save without a password', cls: 'primary', fn: () => runExport(opts, null) },
+      { label: many ? 'Protect them with a password' : 'Protect it with a password',
+        fn: () => askForExportPassword(opts) },
+      { label: 'Cancel' }
+    ]
+  });
+}
+
+async function askForExportPassword(opts) {
   const pw = await askPassword({
     title: 'Choose a password',
     note: 'Anyone opening the signed PDF will have to type this. Keep a note of it — it cannot be recovered.',
@@ -695,24 +778,30 @@ async function askForExportPassword() {
   });
   if (pw === null) return;
   if (!pw.trim()) { toast('No password typed — nothing saved.'); return; }
-  runExport(pw);
+  runExport(opts, pw);
 }
 
-async function runExport(password) {
+async function runExport(opts, password) {
   const mine = doc;
   if (!mine) return;
   busy('Preparing your signed PDF…');
   try {
-    const bytes = await buildPdf(mine, { password, onStep: (m) => busy(m) });
-    const filename = mine.name.replace(/[\\/:*?"<>|]/g, '-') + '-signed.pdf';
+    const files = await buildOutputs(mine, {
+      combine: opts.combine, password, onStep: (m) => busy(m)
+    });
     idle();
     // The share sheet can sit open for a while, and the document may be closed
-    // behind it — but the file really was saved, so say so.
-    const how = await deliver(bytes, filename);
+    // behind it — but the files really were saved, so say so.
+    const how = await deliverMany(files);
     if (how !== 'cancelled') mine.dirty = false;
-    if (how === 'saved') offerShare(filename, !!password);
+    if (how === 'saved') offerShare(files, !!password);
     else if (how === 'shared') toast(password ? 'Shared — it will ask for your password.' : 'Shared.');
-    else if (how === 'downloaded') toast('Downloaded: ' + filename, 3400);
+    else if (how === 'downloaded') {
+      toast(files.length === 1
+        ? 'Downloaded: ' + files[0].filename
+        : 'Downloaded ' + files.length + ' files — your browser may ask to allow more than one.',
+        4200);
+    }
   } catch (err) {
     idle();
     sheet({
@@ -726,15 +815,24 @@ async function runExport(password) {
 }
 $('btnExport').addEventListener('click', exportDoc);
 
-/** Inside the Android app the file is already in Downloads — offer to send it on. */
-function offerShare(filename, protectedFile) {
+/** Inside the Android app the files are already in Downloads — offer to send them on. */
+function offerShare(files, protectedFile) {
   const bridge = window.InkSignAndroid;
-  if (!bridge || !bridge.shareLast) { toast('Saved.', 3400); return; }
+  const many = files.length > 1;
+  const send = bridge && (many ? bridge.shareMany : bridge.shareLast);
+  if (!send) { toast('Saved.', 3400); return; }
+  // savedCount() deliberately goes unread here: the shell writes the batch on a
+  // background thread, so asking now would report the previous save.
   sheet({
     title: 'Saved to Downloads',
-    note: filename + (protectedFile ? ' — it will ask for your password when opened.' : ''),
+    note: (many ? files.length + ' files' : files[0].filename) +
+          (protectedFile
+            ? (many ? ' — they will ask for your password when opened.'
+                    : ' — it will ask for your password when opened.')
+            : ''),
     actions: [
-      { label: 'Send it to someone', cls: 'primary', fn: () => { try { bridge.shareLast(); } catch (_) {} } },
+      { label: many ? 'Send them to someone' : 'Send it to someone', cls: 'primary',
+        fn: () => { try { send.call(bridge); } catch (_) {} } },
       { label: 'Done' }
     ]
   });
@@ -769,8 +867,8 @@ window.inkSignOpenFileUrl = function (name, mime, url) {
       if (!res.ok) throw new Error('http ' + res.status);
       return res.blob();
     })
-    .then((blob) => openDocument(new File([blob], name || 'document',
-      { type: mime || 'application/pdf' })))
+    .then((blob) => openDocuments([new File([blob], name || 'document',
+      { type: mime || 'application/pdf' })]))
     .catch(() => {
       // Ask the shell to send it the old way rather than losing the document.
       const bridge = window.InkSignAndroid;
@@ -785,7 +883,7 @@ window.inkSignOpenFile = function (name, mime, base64) {
     const bin = atob(base64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    openDocument(new File([bytes], name || 'document', { type: mime || 'application/pdf' }));
+    openDocuments([new File([bytes], name || 'document', { type: mime || 'application/pdf' })]);
   } catch (_) {
     toast('That file could not be opened.');
   }
