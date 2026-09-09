@@ -1,5 +1,4 @@
 import { SignaturePad } from './pad.js';
-import { SignDoc } from './doc.js';
 import { buildPdf, deliver } from './export.js';
 import {
   hydrate, keepStorage, storageWorks,
@@ -19,6 +18,23 @@ let pad = null;
 let doc = null;
 let padReturnsTo = 'home';
 
+/* doc.js pulls in pdf.js (392KB). Nothing on the home screen needs either, so
+   they are fetched the first time a document is actually opened. */
+let SignDoc = null;
+async function docModule() {
+  if (!SignDoc) SignDoc = (await import('./doc.js')).SignDoc;
+  return SignDoc;
+}
+
+/**
+ * True while `d` is still the document on screen. Finding lines or reading a
+ * page takes seconds, and the Back key works throughout — so by the time an
+ * answer arrives the document it describes may be closed, or replaced by one
+ * shared in from another app. Such an answer has to be dropped, not applied to
+ * whatever is open now.
+ */
+function isCurrent(d) { return !!d && doc === d && !d.destroyed; }
+
 /* ================= chrome ================= */
 
 function show(name) {
@@ -35,11 +51,25 @@ function toast(msg, ms) {
   toastTimer = setTimeout(() => { t.hidden = true; }, ms || 2600);
 }
 
-function busy(msg) {
+let _busyCancel = null;
+/** `onCancel` puts a Cancel button on the overlay; without one there is none. */
+function busy(msg, onCancel) {
   $('busyMsg').textContent = msg || 'Working…';
+  _busyCancel = onCancel || null;
+  $('busyCancel').hidden = !onCancel;
   $('busy').hidden = false;
 }
-function idle() { $('busy').hidden = true; }
+function idle() {
+  $('busy').hidden = true;
+  $('busyCancel').hidden = true;
+  _busyCancel = null;
+}
+$('busyCancel').addEventListener('click', () => {
+  const fn = _busyCancel;
+  _busyCancel = null;
+  $('busyCancel').hidden = true;
+  if (fn) fn();
+});
 
 /** A bottom sheet with a title, a note and a stack of buttons. */
 function sheet(opts) {
@@ -177,7 +207,9 @@ document.addEventListener('click', (e) => {
 });
 
 function leave(target) {
-  if (doc && doc.dirty && screens.doc.classList.contains('is-active')) {
+  // Nothing placed means nothing to lose, even if a stamp was added and
+  // removed again — otherwise "Save it first" leads to a dead end.
+  if (doc && doc.dirty && doc.stamps.length && screens.doc.classList.contains('is-active')) {
     sheet({
       title: 'Leave this document?',
       note: 'Your signatures have not been saved to a file yet.',
@@ -195,7 +227,7 @@ function leave(target) {
 
 function discardDoc() {
   closeTapMenu();
-  if (doc) { doc.host.innerHTML = ''; doc = null; }
+  if (doc) { doc.destroy(); doc = null; }
   $('selBar').hidden = true;
 }
 
@@ -272,6 +304,10 @@ function when(ts) {
   return new Date(ts).toLocaleDateString();
 }
 
+/* The draw screen can be reached from a document, and going back must return
+   there — dropping to Home would orphan a half-signed document. */
+$('btnDrawBack').addEventListener('click', () => show(padReturnsTo === 'doc' && doc ? 'doc' : 'home'));
+
 $('tileDraw').addEventListener('click', () => openPad('home'));
 $('tileOpen').addEventListener('click', () => $('filePick').click());
 
@@ -347,8 +383,10 @@ $('filePick').addEventListener('change', async (e) => {
 async function openDocument(file) {
   discardDoc();
   busy('Opening…');
+  let mine = null;
   try {
-    doc = new SignDoc($('pages'));
+    const Doc = await docModule();
+    mine = doc = new Doc($('pages'));
     doc.onSelect = onStampSelected;
     doc.onTap = onPageTapped;
     doc.onPasswordNeeded = (wrong) => {
@@ -360,6 +398,7 @@ async function openDocument(file) {
       }).then((pw) => { if (pw !== null) busy('Opening…'); return pw; });
     };
     const n = await doc.load(file, (i, total) => busy('Opening page ' + i + ' of ' + total + '…'));
+    if (doc !== mine) { mine.destroy(); return; }   // closed, or another file arrived
     $('docTitle').textContent = doc.name;
     $('docFoot').textContent = n + (n === 1 ? ' page' : ' pages') +
       ' · tap the page to add a signature';
@@ -370,8 +409,9 @@ async function openDocument(file) {
     doc.watchViewport($('docScroll'));
     // Work out the first page's lines now, so the first tap can snap to one
     // without the user waiting for it.
-    doc.hitsFor(doc.pages[0]).catch(() => {});
+    mine.hitsFor(mine.pages[0]).catch(() => {});
   } catch (err) {
+    if (mine && doc !== mine) { mine.destroy(); return; }
     discardDoc();
     show('home');
     sheet({
@@ -415,26 +455,32 @@ function onPageTapped(t) {
  * wherever the finger happened to land.
  */
 async function placeTapped(t, spec) {
-  const rec = doc.pages[t.page];
+  const mine = doc;
+  if (!mine) return;
+  const rec = mine.pages[t.page];
   if (!rec) return;
 
   let line = null;
   try {
-    await doc.hitsFor(rec);
-    line = doc.lineNear(rec, t.xPct, t.yPct);
-  } catch (_) { /* no detection is fine; place it exactly where they tapped */ }
+    await mine.hitsFor(rec);
+    if (!isCurrent(mine)) return;
+    line = mine.lineNear(rec, t.xPct, t.yPct);
+  } catch (_) {
+    // No detection is fine; place it exactly where they tapped.
+    if (!isCurrent(mine)) return;
+  }
 
   let st;
   if (line && spec.type === 'sig') {
-    st = doc.placeSignatureOnLine(line, { id: spec.sigId, png: spec.png, w: spec.w, h: spec.h });
+    st = mine.placeSignatureOnLine(line, { id: spec.sigId, png: spec.png, w: spec.w, h: spec.h });
   } else if (line && spec.type === 'text') {
-    st = doc.placeDateOnLine(line, spec.text);
+    st = mine.placeDateOnLine(line, spec.text);
   } else {
-    st = doc.placeAtPoint(spec, t.page, t.xPct, t.yPct);
+    st = mine.placeAtPoint(spec, t.page, t.xPct, t.yPct);
   }
 
   if (!st) return;
-  doc.select(st);
+  mine.select(st);
   toast(line ? 'Placed on the line. Drag to adjust.' : 'Drag to adjust, or use the blue dot to resize.', 2800);
 }
 
@@ -452,20 +498,25 @@ function needSignature() {
 }
 
 $('btnSignAll').addEventListener('click', async () => {
-  if (!doc) return;
+  const mine = doc;
+  if (!mine) return;
   const sig = needSignature();
   if (!sig) return;
 
-  busy('Looking for signature lines…');
+  // A long document is a long wait; there has to be a way out of it.
+  const stop = () => mine.cancelFindLines();
+  busy('Looking for signature lines…', stop);
   let hits;
   try {
-    hits = await doc.findLines((i, total) => busy('Checking page ' + i + ' of ' + total + '…'));
+    hits = await mine.findLines((i, total) => busy('Checking page ' + i + ' of ' + total + '…', stop));
   } catch (err) {
     idle();
+    if (!isCurrent(mine) || (err && err.cancelled)) return;
     toast('Could not read this document.');
     return;
   }
   idle();
+  if (!isCurrent(mine)) return;
 
   if (!hits.length) {
     sheet({
@@ -485,25 +536,32 @@ $('btnSignAll').addEventListener('click', async () => {
   const selected = new Set((labelled.length ? labelled : plain).map(h => h.id));
   let withDates = false;
 
-  const count = document.createElement('p');
-  const setCount = (n) => { count.textContent = n + (n === 1 ? ' line selected.' : ' lines selected.'); };
-  setCount(selected.size);
+  // A date line gets the date, never a signature as well — otherwise "select
+  // every line" and "also fill in the date" cancel each other out.
+  const toSign = () => hits.filter(h => selected.has(h.id) && !(withDates && h.kind === 'date'));
 
-  doc.showHits(hits, selected, setCount);
-  scrollToHit(hits.find(h => selected.has(h.id)) || hits[0]);
+  const count = document.createElement('p');
+  const setCount = () => {
+    const n = toSign().length;
+    count.textContent = n + (n === 1 ? ' line selected.' : ' lines selected.');
+  };
+  setCount();
+
+  mine.showHits(hits, selected, setCount);
+  scrollToHit(mine, hits.find(h => selected.has(h.id)) || hits[0]);
 
   const actions = [
     {
       label: 'Sign the selected lines', cls: 'primary',
       fn: () => {
-        const chosen = hits.filter(h => selected.has(h.id));
-        chosen.forEach(h => doc.placeSignatureOnLine(h, sig));
-        if (withDates) {
-          dateHits.filter(h => !selected.has(h.id))
-                  .forEach(h => doc.placeDateOnLine(h, today()));
-        }
-        doc.clearHits();
-        toast(chosen.length + (chosen.length === 1 ? ' signature placed.' : ' signatures placed.') + ' Drag any of them to adjust.', 3600);
+        if (!isCurrent(mine)) return;
+        const chosen = toSign();
+        chosen.forEach(h => mine.placeSignatureOnLine(h, sig));
+        if (withDates) dateHits.forEach(h => mine.placeDateOnLine(h, today()));
+        const dates = withDates ? dateHits.length : 0;
+        toast(chosen.length + (chosen.length === 1 ? ' signature placed.' : ' signatures placed.') +
+              (dates ? ' ' + dates + (dates === 1 ? ' date filled in.' : ' dates filled in.') : '') +
+              ' Drag any of them to adjust.', 3600);
       }
     }
   ];
@@ -514,8 +572,8 @@ $('btnSignAll').addEventListener('click', async () => {
       keepOpen: true,
       fn: (btn) => {
         hits.forEach(h => selected.add(h.id));
-        doc.showHits(hits, selected, setCount);
-        setCount(selected.size);
+        mine.showHits(hits, selected, setCount);
+        setCount();
         btn.disabled = true;
         btn.style.opacity = '.5';
       }
@@ -530,14 +588,18 @@ $('btnSignAll').addEventListener('click', async () => {
         withDates = !withDates;
         btn.textContent = (withDates ? '✓ ' : '') + 'Also fill in today’s date (' + dateHits.length + ')';
         btn.classList.toggle('primary', withDates);
+        setCount();
       }
     });
   }
 
-  actions.push({ label: 'Cancel', fn: () => doc.clearHits() });
+  actions.push({ label: 'Cancel' });
 
   sheet({
     compact: true,
+    // However the sheet goes away — a button, the scrim, the Back key — the
+    // boxes must go with it, or they sit there swallowing every tap.
+    onClose: () => { if (isCurrent(mine)) mine.clearHits(); },
     title: (labelled.length ? labelled.length + ' signature line' + (labelled.length === 1 ? '' : 's') : hits.length + ' line' + (hits.length === 1 ? '' : 's')) + ' found',
     note: 'Blue boxes on the page show where your signature will go. Tap a box to include or skip it.',
     extra: count,
@@ -546,9 +608,9 @@ $('btnSignAll').addEventListener('click', async () => {
 });
 
 /** Puts a line in the strip of screen the review sheet leaves visible. */
-function scrollToHit(hit) {
+function scrollToHit(d, hit) {
   if (!hit) return;
-  const rec = doc.pages[hit.page];
+  const rec = d.pages[hit.page];
   if (!rec) return;
   const scroller = $('docScroll');
   const top = rec.el.offsetTop + rec.el.clientHeight * hit.yPct - scroller.clientHeight * 0.22;
@@ -637,14 +699,17 @@ async function askForExportPassword() {
 }
 
 async function runExport(password) {
-  if (!doc) return;
+  const mine = doc;
+  if (!mine) return;
   busy('Preparing your signed PDF…');
   try {
-    const bytes = await buildPdf(doc, { password });
-    const filename = doc.name.replace(/[\\/:*?"<>|]/g, '-') + '-signed.pdf';
+    const bytes = await buildPdf(mine, { password, onStep: (m) => busy(m) });
+    const filename = mine.name.replace(/[\\/:*?"<>|]/g, '-') + '-signed.pdf';
     idle();
+    // The share sheet can sit open for a while, and the document may be closed
+    // behind it — but the file really was saved, so say so.
     const how = await deliver(bytes, filename);
-    if (how !== 'cancelled') doc.dirty = false;
+    if (how !== 'cancelled') mine.dirty = false;
     if (how === 'saved') offerShare(filename, !!password);
     else if (how === 'shared') toast(password ? 'Shared — it will ask for your password.' : 'Shared.');
     else if (how === 'downloaded') toast('Downloaded: ' + filename, 3400);
@@ -679,6 +744,11 @@ function offerShare(filename, protectedFile) {
 
 /** Android's Back key. Returns true when the app consumed it, false to close the app. */
 window.inkSignBack = function () {
+  // Back during a long job should stop the job, not walk out from under it.
+  if (!$('busy').hidden) {
+    if (_busyCancel) $('busyCancel').click();
+    return true;
+  }
   if (_tapMenu) { closeTapMenu(); return true; }
   if (!$('sheet').hidden) { closeSheet(); return true; }
   if (doc && doc.selected) { doc.select(null); return true; }

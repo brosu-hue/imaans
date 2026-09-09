@@ -6,17 +6,54 @@
    document opened for signing is decrypted on the way through, so the signed
    copy does not inherit the original's password. */
 
-const { PDFDocument, StandardFonts, degrees, rgb } = window.PDFLib;
+/* pdf-lib is 620KB and is only ever needed at the moment somebody saves, so it
+   is fetched then rather than on every visit. Reading these names at module
+   level is what used to force the eager <script> tag. */
+let PDFDocument, StandardFonts, degrees, rgb;
+let libLoading = null;
+
+function loadPdfLib() {
+  if (window.PDFLib) return Promise.resolve(window.PDFLib);
+  if (!libLoading) {
+    libLoading = new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = new URL('../vendor/pdf-lib.min.js', import.meta.url).toString();
+      el.onload = () => window.PDFLib ? resolve(window.PDFLib)
+                                      : reject(new Error('The PDF tools did not load properly.'));
+      el.onerror = () => { libLoading = null; reject(new Error('The PDF tools could not be loaded.')); };
+      document.head.appendChild(el);
+    });
+  }
+  return libLoading;
+}
+
+async function ensureLib() {
+  const lib = await loadPdfLib();
+  PDFDocument = lib.PDFDocument;
+  StandardFonts = lib.StandardFonts;
+  degrees = lib.degrees;
+  rgb = lib.rgb;
+}
 
 const MAX_IMAGE_EDGE = 2400;   // plenty for a document photo, kind to phone memory
 
+/** Lets the phone repaint between the slow, synchronous stretches below. */
+function frame() { return new Promise(r => setTimeout(r, 0)); }
+
 /**
  * @param {object} doc      the open document
- * @param {object} [opts]   { password } to protect the result with
+ * @param {object} [opts]   { password } to protect the result with, { onStep }
+ *                          to report what is happening
  * @returns {Uint8Array} the finished PDF
  */
 export async function buildPdf(doc, opts) {
+  const step = (opts && opts.onStep) || function () {};
+  step('Getting the PDF tools ready…');
+  await ensureLib();
+  step('Placing your signatures…');
   const out = doc.pdf ? await fromPdf(doc) : await fromImage(doc);
+  step('Building the file…');
+  await frame();                       // let that message actually appear
   return await finish(out, opts);
 }
 
@@ -40,11 +77,14 @@ async function fromPdf(doc) {
   const pages = out.getPages();
   const images = new Map();
   let helv = null;
+  let dropped = 0;
 
   for (const st of doc.stamps) {
     const rec = doc.pages[st.page];
     const page = pages[st.page];
-    if (!rec || !page || !rec.vp1) continue;
+    // pdf-lib and pdf.js disagreeing about the pages is rare, but saying
+    // "saved" over a document with no signature on it would be far worse.
+    if (!rec || !page || !rec.vp1) { dropped++; continue; }
 
     const g = geometry(rec.vp1, st);
 
@@ -67,6 +107,11 @@ async function fromPdf(doc) {
         rotate: degrees(g.angle)
       });
     }
+  }
+  if (dropped) {
+    throw new Error(dropped === doc.stamps.length
+      ? 'The signatures could not be matched to the pages of this document, so nothing was saved.'
+      : dropped + ' of your signatures could not be placed on the right page, so nothing was saved.');
   }
   return out;
 }
@@ -109,7 +154,7 @@ async function fromImage(doc) {
   const ph = rec.baseH * fit;
 
   const page = out.addPage([pw, ph]);
-  const jpeg = await out.embedJpg(reencodeJpeg(doc.image.el, rec.baseW, rec.baseH));
+  const jpeg = await out.embedJpg(await reencodeJpeg(doc.image.el, rec.baseW, rec.baseH));
   page.drawImage(jpeg, { x: 0, y: 0, width: pw, height: ph });
 
   const images = new Map();
@@ -134,7 +179,7 @@ async function fromImage(doc) {
 }
 
 /** Re-encodes through a canvas so any format the browser can show becomes an embeddable JPEG. */
-function reencodeJpeg(imgEl, w, h) {
+async function reencodeJpeg(imgEl, w, h) {
   const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(w, h));
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(w * scale));
@@ -143,6 +188,12 @@ function reencodeJpeg(imgEl, w, h) {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, c.width, c.height);
   ctx.drawImage(imgEl, 0, 0, c.width, c.height);
+  // Straight to bytes: a data URL would be base64-encoded only to be decoded
+  // again a line later, which on a big photo is megabytes of pointless string.
+  if (c.toBlob) {
+    const blob = await new Promise(res => c.toBlob(res, 'image/jpeg', 0.92));
+    if (blob) return new Uint8Array(await blob.arrayBuffer());
+  }
   return dataUrlToBytes(c.toDataURL('image/jpeg', 0.92));
 }
 
@@ -154,11 +205,15 @@ function dataUrlToBytes(dataUrl) {
   return bytes;
 }
 
-function bytesToBase64(bytes) {
+async function bytesToBase64(bytes) {
   let s = '';
   const chunk = 0x8000;
+  let since = 0;
   for (let i = 0; i < bytes.length; i += chunk) {
     s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    // A big document is a lot of chunks; breathe now and then so the phone
+    // does not look frozen.
+    if (++since >= 16) { since = 0; await frame(); }
   }
   return btoa(s);
 }
@@ -170,14 +225,15 @@ function bytesToBase64(bytes) {
  * @returns {string} what happened, for the confirmation message
  */
 export async function deliver(bytes, filename) {
-  // ArrayBuffer copy: some engines dislike a Uint8Array view backed by a larger buffer.
-  const blob = new Blob([bytes.slice().buffer], { type: 'application/pdf' });
-
   // 1. Inside the Android app, hand it to the system so it lands in Downloads.
+  //    This path never touches the Blob, so it must not pay for the copy below.
   if (window.InkSignAndroid && window.InkSignAndroid.saveBase64) {
-    window.InkSignAndroid.saveBase64(filename, 'application/pdf', bytesToBase64(bytes));
+    window.InkSignAndroid.saveBase64(filename, 'application/pdf', await bytesToBase64(bytes));
     return 'saved';
   }
+
+  // ArrayBuffer copy: some engines dislike a Uint8Array view backed by a larger buffer.
+  const blob = new Blob([bytes.slice().buffer], { type: 'application/pdf' });
 
   // 2. iPhone / modern Android browser: the share sheet (Files, Mail, WhatsApp…).
   try {

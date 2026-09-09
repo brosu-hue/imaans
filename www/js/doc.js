@@ -11,6 +11,15 @@ const STANDARD_FONTS = new URL('../vendor/standard_fonts/', import.meta.url).toS
 const MAX_PAGE_PIXELS = 3.6e6;
 const MAX_SCALE = 3;
 
+/* detect.js works on a copy no wider than this, so rendering a page any bigger
+   than it just to look for lines costs memory for nothing. */
+const DETECT_W = 1000;
+
+/* How many pages either side of what you are looking at keep their bitmap.
+   Past WebKit's canvas budget new canvases come back blank rather than
+   failing, so a page would silently render white and be signed on nothing. */
+const KEEP_PAGES = 3;
+
 let uid = 0;
 const nextId = () => 'k' + (++uid);
 
@@ -27,7 +36,11 @@ export class SignDoc {
     this.password = '';          // set when the original was password protected
     this.onSelect = () => {};
     this.onTap = () => {};
+    this.destroyed = false;      // set by destroy(); results that arrive later are stale
     this._sel = null;
+    this._io = null;
+    this._visible = null;        // page indexes the viewport can currently see
+    this._stopFind = false;
   }
 
   /* ================= loading ================= */
@@ -47,9 +60,16 @@ export class SignDoc {
     if (isPdf) {
       this.bytes = new Uint8Array(buf);
       this.pdf = await this._openPdf();
-      for (let i = 1; i <= this.pdf.numPages; i++) {
-        if (onProgress) onProgress(i, this.pdf.numPages);
-        await this._addPdfPage(i);
+      // A page at a time means N round trips to the worker before anything is
+      // on screen; a handful at a time keeps the wait roughly one round trip.
+      const total = this.pdf.numPages;
+      const BATCH = 4;
+      for (let i = 1; i <= total; i += BATCH) {
+        const nums = [];
+        for (let n = i; n < i + BATCH && n <= total; n++) nums.push(n);
+        const got = await Promise.all(nums.map(n => this.pdf.getPage(n)));
+        got.forEach(pg => this._addPdfPage(pg));
+        if (onProgress) onProgress(Math.min(i + BATCH - 1, total), total);
       }
     } else {
       const img = await loadImage(buf, file.type || 'image/jpeg');
@@ -88,8 +108,7 @@ export class SignDoc {
     return await task.promise;
   }
 
-  async _addPdfPage(num) {
-    const page = await this.pdf.getPage(num);
+  _addPdfPage(page) {
     const vp1 = page.getViewport({ scale: 1 });
     const rec = this._makePage(vp1.width, vp1.height);
     rec.pdfPage = page;
@@ -111,6 +130,10 @@ export class SignDoc {
     el.style.width = '100%';
 
     const canvas = document.createElement('canvas');
+    // A canvas starts out 300x150; a page that has never been rendered should
+    // cost nothing, and should look exactly like one whose bitmap was dropped.
+    canvas.width = 0;
+    canvas.height = 0;
     const layer = document.createElement('div');
     layer.className = 'page-layer';
     el.appendChild(canvas);
@@ -128,15 +151,20 @@ export class SignDoc {
 
   /* ================= rendering ================= */
 
-  /** Renders a page's bitmap once, sized to how wide it is actually shown. */
-  ensureRendered(rec) {
+  /**
+   * Renders a page's bitmap once, sized to how wide it is actually shown.
+   * `opts.maxW` caps the bitmap width — used when a page is only being read
+   * for line detection and never shown at full size.
+   */
+  ensureRendered(rec, opts) {
     if (rec.rendered) return Promise.resolve(rec);
     if (rec.rendering) return rec.rendering;
 
-    rec.rendering = (async () => {
+    const job = (async () => {
       const cssW = rec.el.clientWidth || this.host.clientWidth || 700;
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       let scale = (cssW * dpr) / rec.baseW;
+      if (opts && opts.maxW) scale = Math.min(scale, opts.maxW / rec.baseW);
       scale = Math.min(scale, MAX_SCALE);
       const area = rec.baseW * scale * rec.baseH * scale;
       if (area > MAX_PAGE_PIXELS) scale *= Math.sqrt(MAX_PAGE_PIXELS / area);
@@ -151,7 +179,9 @@ export class SignDoc {
         ctx.fillStyle = '#fff';
         ctx.fillRect(0, 0, rec.canvas.width, rec.canvas.height);
         await rec.pdfPage.render({ canvasContext: ctx, viewport: vp }).promise;
-        rec.textItems = await readText(rec.pdfPage, vp);
+        // The text is only ever read to label detected lines, so a page that
+        // already knows its lines does not need it again.
+        rec.textItems = rec.hits ? null : await readText(rec.pdfPage, vp);
       } else {
         rec.canvas.width = Math.round(rec.baseW * scale);
         rec.canvas.height = Math.round(rec.baseH * scale);
@@ -165,7 +195,51 @@ export class SignDoc {
       return rec;
     })();
 
+    // Forget the promise once it settles: holding a rejected one would make a
+    // single hiccup break the page for good, and holding a resolved one keeps
+    // the whole render closure alive.
+    rec.rendering = job.then(
+      (r) => { rec.rendering = null; return r; },
+      (err) => { rec.rendering = null; throw err; }
+    );
     return rec.rendering;
+  }
+
+  /**
+   * Throws a page's bitmap away. Only the picture goes: the lines found on it
+   * are fractions of the page, so they still describe it exactly when it is
+   * rendered again at some other size.
+   */
+  evict(rec) {
+    if (!rec.canvas) return;
+    // Detaching or removing a canvas does not free its backing store on
+    // WebKit. Sizing it to nothing does.
+    rec.canvas.width = 0;
+    rec.canvas.height = 0;
+    rec.rendered = false;
+    rec.vp = null;
+    rec.textItems = null;
+    if (rec.pdfPage && rec.pdfPage.cleanup) { try { rec.pdfPage.cleanup(); } catch (_) {} }
+  }
+
+  /** True while a page is close enough to the viewport to be worth keeping. */
+  _isNear(rec) {
+    if (!this._visible || !this._visible.size) return true;   // nothing measured yet
+    let best = Infinity;
+    this._visible.forEach((i) => {
+      const d = Math.abs(i - rec.idx);
+      if (d < best) best = d;
+    });
+    return best <= KEEP_PAGES;
+  }
+
+  /** Drops the bitmaps of pages nobody is looking at any more. */
+  _sweep() {
+    if (!this._visible || !this._visible.size) return;
+    for (const rec of this.pages) {
+      if (!rec.rendered || rec.rendering) continue;
+      if (!this._isNear(rec)) this.evict(rec);
+    }
   }
 
   /** Renders whatever is on screen now, and keeps doing so as you scroll. */
@@ -176,12 +250,16 @@ export class SignDoc {
       this.pages.forEach(render);
       return;
     }
+    this._visible = new Set();
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
-        if (!e.isIntersecting) continue;
-        const rec = this.pages[Number(e.target.dataset.idx)];
-        if (rec) render(rec);
+        const idx = Number(e.target.dataset.idx);
+        const rec = this.pages[idx];
+        if (!rec) continue;
+        if (e.isIntersecting) { this._visible.add(idx); render(rec); }
+        else this._visible.delete(idx);
       }
+      this._sweep();
     }, { root: scroller, rootMargin: '400px 0px' });
 
     this.pages.forEach((rec, i) => {
@@ -191,12 +269,30 @@ export class SignDoc {
     this._io = io;
   }
 
+  /** Everything the document is holding: bitmaps, the pdf.js worker, the DOM. */
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this._stopFind = true;
+    if (this._io) { this._io.disconnect(); this._io = null; }
+    for (const rec of this.pages) this.evict(rec);
+    if (this.pdf) { try { this.pdf.destroy(); } catch (_) {} this.pdf = null; }
+    if (this.image && this.image.url) { try { URL.revokeObjectURL(this.image.url); } catch (_) {} }
+    this.host.innerHTML = '';
+    this.pages = [];
+    this.stamps = [];
+    this.bytes = null;
+    this.image = null;
+    this._sel = null;
+    this._hitEls = [];
+  }
+
   /* ================= line detection ================= */
 
   /** The signing lines on one page, worked out once and kept. */
-  async hitsFor(rec) {
+  async hitsFor(rec, opts) {
     if (rec.hits) return rec.hits;
-    await this.ensureRendered(rec);
+    await this.ensureRendered(rec, opts);
     rec.hits = detectSignatureLines(rec.canvas, rec.textItems).map(h => ({
       id: nextId(),
       page: rec.idx,
@@ -206,15 +302,31 @@ export class SignDoc {
       kind: h.kind,
       score: h.score
     }));
+    rec.textItems = null;        // read once, by the labelling above
     return rec.hits;
   }
 
-  /** Renders every page if needed, then finds the signing lines on each. */
+  /** Stops a findLines() that is still working through the pages. */
+  cancelFindLines() { this._stopFind = true; }
+
+  /**
+   * Renders every page if needed, then finds the signing lines on each.
+   * A page that is not on screen is rendered no larger than the detector
+   * actually reads and dropped again straight away, so a long document costs
+   * two page bitmaps rather than one per page.
+   */
   async findLines(onProgress) {
+    this._stopFind = false;
     const all = [];
     for (let i = 0; i < this.pages.length; i++) {
+      if (this._stopFind || this.destroyed) throw cancelled();
+      const rec = this.pages[i];
       if (onProgress) onProgress(i + 1, this.pages.length);
-      all.push.apply(all, await this.hitsFor(this.pages[i]));
+      const near = this._isNear(rec);
+      await this.hitsFor(rec, near ? null : { maxW: DETECT_W });
+      if (this._stopFind || this.destroyed) throw cancelled();
+      all.push.apply(all, rec.hits);
+      if (!near) this.evict(rec);
       await frame();
     }
     return all;
@@ -416,7 +528,11 @@ export class SignDoc {
     return st;
   }
 
-  _layout(st) {
+  /**
+   * `pageH` avoids reading the page's height back straight after writing the
+   * stamp's — a forced reflow, and this runs on every pointermove of a drag.
+   */
+  _layout(st, pageH) {
     const el = st.el;
     el.style.left = (st.xPct * 100) + '%';
     el.style.top = (st.yPct * 100) + '%';
@@ -424,7 +540,7 @@ export class SignDoc {
     el.style.height = (st.hPct * 100) + '%';
     if (st.type === 'text') {
       const rec = this.pages[st.page];
-      const px = st.hPct * (rec.el.clientHeight || 800);
+      const px = st.hPct * (pageH || rec.el.clientHeight || 800);
       const t = el.querySelector('.stamp-txt');
       if (t) t.style.fontSize = px.toFixed(1) + 'px';
     }
@@ -508,13 +624,17 @@ export class SignDoc {
     const handle = el.querySelector('.stamp-handle');
     const rec = this.pages[st.page];
 
-    let mode = null, sx = 0, sy = 0, ox = 0, oy = 0, ow = 0, oh = 0, pw = 0, ph = 0;
+    let mode = null, pid = null, sx = 0, sy = 0, ox = 0, oy = 0, ow = 0, oh = 0, pw = 0, ph = 0;
 
     const down = (e, which) => {
+      // A second finger landing on the stamp must not restart the gesture
+      // under the first one — that is what made a pinch jump and then stick.
+      if (mode) return;
       e.preventDefault();
       e.stopPropagation();
       this.select(st);
       mode = which;
+      pid = e.pointerId;
       const r = rec.el.getBoundingClientRect();
       pw = r.width; ph = r.height;
       sx = e.clientX; sy = e.clientY;
@@ -523,25 +643,30 @@ export class SignDoc {
     };
 
     const move = (e) => {
-      if (!mode || !pw || !ph) return;
+      if (!mode || e.pointerId !== pid || !pw || !ph) return;
       e.preventDefault();
       const dx = (e.clientX - sx) / pw;
       const dy = (e.clientY - sy) / ph;
       if (mode === 'move') {
-        st.xPct = clamp(ox + dx, -ow * 0.25, 1 - ow * 0.75);
-        st.yPct = clamp(oy + dy, -oh * 0.25, 1 - oh * 0.75);
+        // Keep enough of the stamp on the page to grab it again. A share of
+        // the stamp alone leaves a thin date stamp as an unusable sliver.
+        const keepX = Math.max(ow * 0.75, Math.min(ow, 0.06));
+        const keepY = Math.max(oh * 0.75, Math.min(oh, 0.03));
+        st.xPct = clamp(ox + dx, keepX - ow, 1 - keepX);
+        st.yPct = clamp(oy + dy, keepY - oh, 1 - keepY);
       } else {
         const w = clamp(ow + dx, 0.03, 0.98);
         const ratio = w / ow;
         st.wPct = w;
         st.hPct = clamp(oh * ratio, 0.008, 0.9);
       }
-      this._layout(st);
+      this._layout(st, ph);
     };
 
     const up = (e) => {
-      if (!mode) return;
+      if (!mode || e.pointerId !== pid) return;
       mode = null;
+      pid = null;
       this.dirty = true;
       try { el.releasePointerCapture(e.pointerId); } catch (_) {}
     };
@@ -566,6 +691,13 @@ function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
  */
 function pageUnit(rec) { return Math.max(rec.baseW, rec.baseH) / 842; }
 function frame() { return new Promise(r => setTimeout(r, 0)); }
+
+/** Marked so callers can tell "you stopped it" from "it went wrong". */
+function cancelled() {
+  const err = new Error('Cancelled.');
+  err.cancelled = true;
+  return err;
+}
 
 function looksLikePdf(buf) {
   const b = new Uint8Array(buf.slice(0, 5));

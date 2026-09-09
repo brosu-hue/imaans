@@ -20,11 +20,16 @@ const MAX_SIGNATURES = 8;
 
 const state = { signatures: [], activeId: null, recents: [] };
 let durable = false;   // did anything actually keep the last write?
+let savedAt = 0;       // revision of what is in memory; only ever goes up
 
 /* ---------- IndexedDB, wrapped just enough ---------- */
 
+let dbOpen = null;
+
+/** One connection for the life of the page — opening one per read leaks them. */
 function idb() {
-  return new Promise((resolve) => {
+  if (dbOpen) return dbOpen;
+  dbOpen = new Promise((resolve) => {
     let req;
     try {
       req = indexedDB.open(DB_NAME, 1);
@@ -38,7 +43,13 @@ function idb() {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => resolve(null);
     req.onblocked = () => resolve(null);
+  }).then((db) => {
+    // A refusal now may not be a refusal later, so do not cache the failure.
+    if (!db) dbOpen = null;
+    else db.onclose = () => { dbOpen = null; };
+    return db;
   });
+  return dbOpen;
 }
 
 function idbGet() {
@@ -121,20 +132,30 @@ function adopt(data) {
   return true;
 }
 
-/** Reads state back from the most durable place that has it. */
-export async function hydrate() {
-  if (adopt(nativeRead())) { durable = true; return; }
+/** When a stored copy was written. Anything older than v2.1 counts as ancient. */
+function revisionOf(data) {
+  return (data && typeof data.savedAt === 'number') ? data.savedAt : 0;
+}
 
-  const fromIdb = await idbGet();
-  if (adopt(fromIdb)) {
-    durable = true;
-    nativeWrite(state);           // seed the app's files if it just gained them
-    return;
+/**
+ * Reads state back from the FRESHEST place that has it — not simply the most
+ * durable one. If one layer quietly stops accepting writes, taking its word
+ * for it would resurrect an old signature and drop today's.
+ */
+export async function hydrate() {
+  const layers = [nativeRead(), await idbGet(), localRead(KEY)];
+  let best = null;
+  for (const data of layers) {
+    if (!data || typeof data !== 'object') continue;
+    if (!best || revisionOf(data) > revisionOf(best)) best = data;
   }
 
-  if (adopt(localRead(KEY))) {
-    durable = true;
-    persist();                    // promote it to the better layers
+  if (best) {
+    adopt(best);
+    savedAt = revisionOf(best);
+    // Bring every layer back into line if any of them is behind.
+    if (layers.some(d => revisionOf(d) < savedAt)) persist();
+    else durable = true;
     return;
   }
 
@@ -161,14 +182,19 @@ async function probe() {
 
 /** Writes to every layer. Synchronous callers do not wait for this. */
 function persist() {
+  // Monotonic even if the device clock jumps backwards: hydrate compares these.
+  savedAt = Math.max(Date.now(), savedAt + 1);
   const snapshot = {
     signatures: state.signatures,
     activeId: state.activeId,
-    recents: state.recents
+    recents: state.recents,
+    savedAt
   };
   const native = nativeWrite(snapshot);
   const local = localWrite(snapshot);
-  if (native || local) durable = true;
+  // Describes THIS write. Latching true would keep telling the user their
+  // signature is safe long after the device stopped keeping it.
+  durable = native || local;
   idbPut(snapshot).then((ok) => { if (ok) durable = true; });
 }
 

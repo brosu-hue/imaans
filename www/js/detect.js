@@ -48,7 +48,11 @@ export function detectSignatureLines(canvas, textItems) {
 
   const minLen = Math.round(W * 0.13);        // shorter than this is not a signing line
   const gapTol = Math.max(4, Math.round(W * 0.012)); // bridges dotted lines and underscores
-  const maxThick = Math.max(3, Math.round(H * 0.0045));
+  // Measured against the page's WIDTH, not its height: how thin a printed rule
+  // is has nothing to do with how tall the page happens to be, and a receipt-
+  // shaped scan otherwise gets a tolerance so generous that whole paragraphs
+  // merge into one "line". Also the row-merge and below-probe distances.
+  const maxThick = Math.max(3, Math.round(W * 0.0064));
 
   // 2. Horizontal runs, row by row.
   const cands = [];
@@ -165,25 +169,47 @@ function inkRatio(dark, W, H, c, from, to) {
 
 /** Tags each line 'sig' / 'date' using the words printed near it. */
 function label(lines, items) {
+  // Bucket the page's words by row once. Every line then reads only the few
+  // rows that could hold a label for it, instead of all of them.
+  const BUCKET = 32;
+  const rows = new Map();
+  let tallest = 0;
+  for (const it of items) {
+    const s = (it.str || '').trim();
+    if (!s || s.length > 60) continue;
+    const cy = it.y + it.h / 2;
+    if (it.h > tallest) tallest = it.h;
+    const k = Math.floor(cy / BUCKET);
+    const bucket = rows.get(k);
+    const word = { s, x: it.x, y: it.y, w: it.w, h: it.h, cy };
+    if (bucket) bucket.push(word); else rows.set(k, [word]);
+  }
+  if (!rows.size) return;
+
+  // The widest a label can sit from its line, given the biggest text on the page.
+  const reach = Math.max(30, tallest * 2.6);
+
   for (const ln of lines) {
     let best = null;
-    for (const it of items) {
-      const s = (it.str || '').trim();
-      if (!s || s.length > 60) continue;
+    const k0 = Math.floor((ln.y - reach) / BUCKET);
+    const k1 = Math.floor((ln.y + reach) / BUCKET);
+    for (let k = k0; k <= k1 && best !== 'sig'; k++) {
+      const bucket = rows.get(k);
+      if (!bucket) continue;
+      for (const it of bucket) {
+        // "Witness: ______" — the label must butt up against the line's start.
+        // Anything further left belongs to the previous column, not this line.
+        const gap = ln.x - (it.x + it.w);
+        const inline = gap <= Math.max(22, it.h * 1.6) &&
+                       gap >= -ln.w * 0.35 &&
+                       Math.abs(it.cy - ln.y) <= Math.max(14, it.h * 1.2);
+        const below = it.cy > ln.y && it.cy - ln.y <= Math.max(30, it.h * 2.6) &&
+                      it.x < ln.x + ln.w && it.x + it.w > ln.x;
+        if (!inline && !below) continue;
 
-      const cy = it.y + it.h / 2;
-      // "Witness: ______" — the label must butt up against the line's start.
-      // Anything further left belongs to the previous column, not this line.
-      const gap = ln.x - (it.x + it.w);
-      const inline = gap <= Math.max(22, it.h * 1.6) &&
-                     gap >= -ln.w * 0.35 &&
-                     Math.abs(cy - ln.y) <= Math.max(14, it.h * 1.2);
-      const below = cy > ln.y && cy - ln.y <= Math.max(30, it.h * 2.6) &&
-                    it.x < ln.x + ln.w && it.x + it.w > ln.x;
-      if (!inline && !below) continue;
-
-      if (SIG_WORDS.test(s)) { best = 'sig'; break; }
-      if (DATE_WORDS.test(s)) best = best || 'date';
+        if (SIG_WORDS.test(it.s)) { best = 'sig'; break; }
+        if (DATE_WORDS.test(it.s)) best = best || 'date';
+      }
     }
     if (best) {
       ln.kind = best;

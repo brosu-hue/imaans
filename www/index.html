@@ -14,6 +14,16 @@
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="app.css">
+<!-- The app's own modules, so they arrive together rather than one after the
+     other as each import is discovered. -->
+<link rel="modulepreload" href="js/app.js">
+<link rel="modulepreload" href="js/pad.js">
+<link rel="modulepreload" href="js/store.js">
+<link rel="modulepreload" href="js/export.js">
+<!-- Only needed once a document is opened, so fetched quietly in the background. -->
+<link rel="prefetch" href="js/doc.js">
+<link rel="prefetch" href="vendor/pdf.min.mjs">
+<link rel="prefetch" href="vendor/pdf.worker.min.mjs">
 </head>
 <body>
 
@@ -54,7 +64,7 @@
 <!-- ================= DRAW ================= -->
 <section class="screen" id="screen-draw">
   <header class="bar">
-    <button class="icon-btn" data-back="home" title="Back">‹</button>
+    <button class="icon-btn" id="btnDrawBack" title="Back">‹</button>
     <div class="bar-title">Draw your signature</div>
     <button class="txt-btn primary" id="btnSaveSig">Save</button>
   </header>
@@ -114,11 +124,14 @@
 </div>
 
 <div class="toast" id="toast" hidden></div>
-<div class="busy" id="busy" hidden><div class="spin"></div><span id="busyMsg">Working…</span></div>
+<div class="busy" id="busy" hidden>
+  <div class="spin"></div><span id="busyMsg">Working…</span>
+  <button class="txt-btn busy-cancel" id="busyCancel" hidden>Cancel</button>
+</div>
 
 <input type="file" id="filePick" accept="application/pdf,image/*" hidden>
 
-<script src="vendor/pdf-lib.min.js"></script>
+<!-- pdf-lib is loaded by export.js the first time something is saved. -->
 <script src="js/app.js" type="module"></script>
 </body>
 </html>

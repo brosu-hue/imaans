@@ -151,11 +151,14 @@ button{font:inherit; color:inherit; background:none; border:0; cursor:pointer}
 .tool-hero{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:650}
 
 #pages{padding:14px 10px 10px; display:flex; flex-direction:column; align-items:center; gap:14px}
+/* Not clipped: the resize dot and the selection ring of a stamp at the edge
+   of the page sit just outside it, and clipping them left no way to resize.
+   The scroller still clips, so nothing can scroll the screen sideways. */
 .page{
-  position:relative; background:#fff; border-radius:6px; overflow:hidden;
+  position:relative; background:#fff; border-radius:6px;
   box-shadow:0 3px 14px rgba(0,0,0,.35); max-width:100%;
 }
-.page canvas{display:block; width:100%; height:auto}
+.page canvas{display:block; width:100%; height:auto; border-radius:6px}
 .page-layer{position:absolute; inset:0}
 .doc-foot{padding:6px 16px 40px; text-align:center; color:var(--fg-3); font-size:12.5px}
 
@@ -176,10 +179,14 @@ button{font:inherit; color:inherit; background:none; border:0; cursor:pointer}
 .stamp img{width:100%; height:100%; display:block; pointer-events:none}
 .stamp .stamp-txt{
   width:100%; height:100%; display:flex; align-items:center; white-space:nowrap;
-  color:#101317; font-family:Georgia,"Times New Roman",serif;
+  /* Helvetica to match the font the date is written in when the PDF is saved,
+     so what you position is what you get. */
+  color:#101317; font-family:Helvetica,Arial,"Helvetica Neue",sans-serif;
 }
 .stamp.is-sel{outline:2px solid var(--accent); outline-offset:3px}
 .stamp-handle{
+  /* Sits mostly outside the stamp so it does not eat a small one. The page no
+     longer clips, so it stays visible on a stamp at the very edge. */
   position:absolute; right:-13px; bottom:-13px; width:30px; height:30px; border-radius:50%;
   background:var(--accent); border:2px solid #fff; box-shadow:0 1px 5px rgba(0,0,0,.4);
   display:none;
@@ -261,6 +268,7 @@ button{font:inherit; color:inherit; background:none; border:0; cursor:pointer}
   border:3px solid rgba(255,255,255,.25); border-top-color:#fff;
   animation:sp .8s linear infinite;
 }
+.busy-cancel{color:#fff; border:1px solid rgba(255,255,255,.35); margin-top:4px}
 @keyframes sp{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){ .spin{animation-duration:2s} .tile:active{transform:none} }
 
