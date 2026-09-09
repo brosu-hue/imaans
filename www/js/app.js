@@ -2,6 +2,7 @@ import { SignaturePad } from './pad.js';
 import { SignDoc } from './doc.js';
 import { buildPdf, deliver } from './export.js';
 import {
+  hydrate, keepStorage, storageWorks,
   listSignatures, addSignature, deleteSignature,
   activeSignature, setActiveSignatureId,
   listRecents, noteRecent
@@ -63,9 +64,12 @@ function sheet(opts) {
     body.appendChild(b);
   });
   $('sheet').classList.toggle('is-compact', opts.compact === true);
+  _sheetClosed = opts.onClose || null;
   $('scrim').hidden = false;
   $('sheet').hidden = false;
 }
+
+let _sheetClosed = null;
 /**
  * A small menu at the point on the page that was tapped.
  * Anchored to the finger rather than shown as a bottom sheet, so it stays
@@ -123,6 +127,47 @@ function closeTapMenu() {
 function closeSheet() {
   $('sheet').hidden = true;
   $('scrim').hidden = true;
+  const cb = _sheetClosed;
+  _sheetClosed = null;
+  if (cb) cb();
+}
+
+/**
+ * Asks for a password. Resolves with what was typed, or null if the sheet was
+ * dismissed any other way — so a caller waiting on it is never left hanging.
+ */
+function askPassword(opts) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+
+    const form = document.createElement('div');
+    const input = document.createElement('input');
+    input.type = 'password';
+    input.className = 'pw-input';
+    input.placeholder = opts.placeholder || 'Password';
+    input.autocapitalize = 'off';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    form.appendChild(input);
+
+    // Settle first, then close. Closing runs onClose, and a plain button would
+    // otherwise let that cancel fire before the button's own answer landed.
+    const answer = (v) => { done(v); closeSheet(); };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') answer(input.value); });
+
+    sheet({
+      title: opts.title,
+      note: opts.note,
+      extra: form,
+      onClose: () => done(null),          // dismissed some other way
+      actions: [
+        { label: opts.confirm || 'Continue', cls: 'primary', keepOpen: true, fn: () => answer(input.value) },
+        { label: 'Cancel', keepOpen: true, fn: () => answer(null) }
+      ]
+    });
+    setTimeout(() => { try { input.focus(); } catch (_) {} }, 150);
+  });
 }
 $('scrim').addEventListener('click', closeSheet);
 
@@ -260,13 +305,9 @@ $('btnSaveSig').addEventListener('click', () => {
   if (!pad || pad.isEmpty()) { toast('Draw your signature first.'); return; }
   const out = pad.toPNG(320);
   if (!out) { toast('Draw your signature first.'); return; }
-  try {
-    addSignature(out);
-  } catch (err) {
-    toast(err.message);
-    return;
-  }
+  addSignature(out);
   renderHome();
+  if (!storageWorks()) warnNotKept();
   if (padReturnsTo === 'doc' && doc) {
     show('doc');
     toast('Signature saved. Tap "Sign all lines".');
@@ -275,6 +316,24 @@ $('btnSaveSig').addEventListener('click', () => {
     toast('Signature saved.');
   }
 });
+
+/**
+ * Some browsers refuse to keep anything between visits — a private window, or
+ * a page opened straight from a file. Say so once, rather than letting the
+ * signature quietly vanish next time.
+ */
+let warnedNotKept = false;
+function warnNotKept() {
+  if (warnedNotKept) return;
+  warnedNotKept = true;
+  sheet({
+    title: 'This signature may not be kept',
+    note: 'This browser is not letting the app store anything on the device, so your ' +
+          'signature could be gone next time. Adding the app to your home screen, or ' +
+          'using the Android app, keeps it properly.',
+    actions: [{ label: 'OK', cls: 'primary' }]
+  });
+}
 
 /* ================= opening a document ================= */
 
@@ -292,6 +351,14 @@ async function openDocument(file) {
     doc = new SignDoc($('pages'));
     doc.onSelect = onStampSelected;
     doc.onTap = onPageTapped;
+    doc.onPasswordNeeded = (wrong) => {
+      idle();
+      return askPassword({
+        title: wrong ? 'That password did not work' : 'This document is locked',
+        note: 'Enter the password used to open it. It is only used on this phone.',
+        confirm: 'Open'
+      }).then((pw) => { if (pw !== null) busy('Opening…'); return pw; });
+    };
     const n = await doc.load(file, (i, total) => busy('Opening page ' + i + ' of ' + total + '…'));
     $('docTitle').textContent = doc.name;
     $('docFoot').textContent = n + (n === 1 ? ' page' : ' pages') +
@@ -541,21 +608,45 @@ $('btnSelDone').addEventListener('click', () => doc && doc.select(null));
 
 /* ================= saving ================= */
 
-async function exportDoc() {
+function exportDoc() {
   if (!doc) return;
   if (!doc.stamps.length) {
     toast('Nothing has been signed yet.');
     return;
   }
+  sheet({
+    title: 'Save the signed document',
+    note: 'A password is optional. Without one it opens like any normal PDF.',
+    actions: [
+      { label: 'Save without a password', cls: 'primary', fn: () => runExport(null) },
+      { label: 'Protect it with a password', fn: askForExportPassword },
+      { label: 'Cancel' }
+    ]
+  });
+}
+
+async function askForExportPassword() {
+  const pw = await askPassword({
+    title: 'Choose a password',
+    note: 'Anyone opening the signed PDF will have to type this. Keep a note of it — it cannot be recovered.',
+    confirm: 'Save with this password'
+  });
+  if (pw === null) return;
+  if (!pw.trim()) { toast('No password typed — nothing saved.'); return; }
+  runExport(pw);
+}
+
+async function runExport(password) {
+  if (!doc) return;
   busy('Preparing your signed PDF…');
   try {
-    const bytes = await buildPdf(doc);
+    const bytes = await buildPdf(doc, { password });
     const filename = doc.name.replace(/[\\/:*?"<>|]/g, '-') + '-signed.pdf';
     idle();
     const how = await deliver(bytes, filename);
     if (how !== 'cancelled') doc.dirty = false;
-    if (how === 'saved') offerShare(filename);
-    else if (how === 'shared') toast('Shared.');
+    if (how === 'saved') offerShare(filename, !!password);
+    else if (how === 'shared') toast(password ? 'Shared — it will ask for your password.' : 'Shared.');
     else if (how === 'downloaded') toast('Downloaded: ' + filename, 3400);
   } catch (err) {
     idle();
@@ -571,12 +662,12 @@ async function exportDoc() {
 $('btnExport').addEventListener('click', exportDoc);
 
 /** Inside the Android app the file is already in Downloads — offer to send it on. */
-function offerShare(filename) {
+function offerShare(filename, protectedFile) {
   const bridge = window.InkSignAndroid;
-  if (!bridge || !bridge.shareLast) { toast('Saved to your Downloads folder.', 3400); return; }
+  if (!bridge || !bridge.shareLast) { toast('Saved.', 3400); return; }
   sheet({
     title: 'Saved to Downloads',
-    note: filename,
+    note: filename + (protectedFile ? ' — it will ask for your password when opened.' : ''),
     actions: [
       { label: 'Send it to someone', cls: 'primary', fn: () => { try { bridge.shareLast(); } catch (_) {} } },
       { label: 'Done' }
@@ -660,4 +751,9 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   });
 }
 
-renderHome();
+// Load what was saved before the first render, and ask the browser to hang on
+// to it, so a signature drawn once is still there next time.
+hydrate().then(() => {
+  keepStorage();
+  renderHome();
+});

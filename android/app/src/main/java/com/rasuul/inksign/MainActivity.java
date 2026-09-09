@@ -31,11 +31,12 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.webkit.WebViewAssetLoader;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.ByteArrayOutputStream;
 
 /**
  * A shell around the web app in assets/www.
@@ -217,6 +218,11 @@ public class MainActivity extends AppCompatActivity {
                 .replace("\n", "").replace("\r", "") + "\"";
     }
 
+    /** Where the signatures live on the device. */
+    private File storeFile() {
+        return new File(getFilesDir(), "inksign-store.json");
+    }
+
     private void toast(String msg) {
         runOnUiThread(() -> Toast.makeText(this, msg, Toast.LENGTH_LONG).show());
     }
@@ -293,6 +299,45 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public boolean canShare() {
             return lastSaved != null && lastSaved.exists();
+        }
+
+        /*
+         * The saved signatures, kept in the app's own private storage rather
+         * than in the WebView's. Anything the WebView stores can be wiped by
+         * Android when it clears app browsing data; a file here lasts as long
+         * as the app is installed, so a signature is drawn once and no more.
+         */
+
+        @JavascriptInterface
+        public String readStore() {
+            File f = storeFile();
+            if (!f.exists()) return null;
+            try (InputStream in = new FileInputStream(f)) {
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                return out.toString("UTF-8");
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        @JavascriptInterface
+        public void writeStore(String json) {
+            if (json == null) return;
+            // Write beside the real file and swap it in, so a crash midway
+            // cannot leave a half-written file where the signatures were.
+            File target = storeFile();
+            File tmp = new File(target.getParentFile(), target.getName() + ".tmp");
+            try (FileOutputStream out = new FileOutputStream(tmp)) {
+                out.write(json.getBytes("UTF-8"));
+                out.getFD().sync();
+            } catch (Exception e) {
+                tmp.delete();
+                return;
+            }
+            if (!tmp.renameTo(target)) tmp.delete();
         }
     }
 }

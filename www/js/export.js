@@ -1,20 +1,42 @@
 /* Flattens the placed signatures into a real PDF, then hands it to the phone.
    The signature becomes part of the page — there is no separate layer a viewer
-   could switch off. */
+   could switch off.
+
+   The output is never password protected unless you ask for one. A protected
+   document opened for signing is decrypted on the way through, so the signed
+   copy does not inherit the original's password. */
 
 const { PDFDocument, StandardFonts, degrees, rgb } = window.PDFLib;
 
 const MAX_IMAGE_EDGE = 2400;   // plenty for a document photo, kind to phone memory
 
-/** @returns {Uint8Array} the finished PDF */
-export async function buildPdf(doc) {
-  return doc.pdf ? await fromPdf(doc) : await fromImage(doc);
+/**
+ * @param {object} doc      the open document
+ * @param {object} [opts]   { password } to protect the result with
+ * @returns {Uint8Array} the finished PDF
+ */
+export async function buildPdf(doc, opts) {
+  const out = doc.pdf ? await fromPdf(doc) : await fromImage(doc);
+  return await finish(out, opts);
+}
+
+/** Applies the password the user asked for, if any, and serialises. */
+async function finish(out, opts) {
+  const password = opts && opts.password;
+  if (password) {
+    // The same password both opens the document and lifts its restrictions;
+    // one password is what people expect, and two would be a trap.
+    out.encrypt({ userPassword: password, ownerPassword: password });
+  }
+  return await out.save({ useObjectStreams: false });
 }
 
 /* ---------- source was a PDF: draw onto the original, untouched pages ---------- */
 
 async function fromPdf(doc) {
-  const out = await PDFDocument.load(doc.bytes, { ignoreEncryption: true });
+  // Decrypt on the way in when the original was protected, so the signed copy
+  // comes out as an ordinary PDF instead of a broken or still-locked one.
+  const out = await PDFDocument.load(doc.bytes, { password: doc.password || '' });
   const pages = out.getPages();
   const images = new Map();
   let helv = null;
@@ -46,7 +68,7 @@ async function fromPdf(doc) {
       });
     }
   }
-  return await out.save({ useObjectStreams: false });
+  return out;
 }
 
 /**
@@ -108,7 +130,7 @@ async function fromImage(doc) {
       page.drawText(st.text, { x, y: y + h * 0.21, size: h, font: helv, color: rgb(0.06, 0.075, 0.09) });
     }
   }
-  return await out.save({ useObjectStreams: false });
+  return out;
 }
 
 /** Re-encodes through a canvas so any format the browser can show becomes an embeddable JPEG. */

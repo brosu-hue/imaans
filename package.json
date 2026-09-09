@@ -9,7 +9,7 @@
     "test": "node test/e2e.js"
   },
   "devDependencies": {
-    "pdf-lib": "1.17.1",
+    "@cantoo/pdf-lib": "2.9.2",
     "playwright": "^1.49.0"
   }
 }

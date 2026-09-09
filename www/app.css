@@ -232,6 +232,14 @@ button{font:inherit; color:inherit; background:none; border:0; cursor:pointer}
 .sheet-act.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:650}
 .sheet-act.danger{color:var(--danger)}
 .sheet-act:active{opacity:.8}
+.pw-input{
+  display:block; width:100%; margin:2px 0 14px; padding:14px 14px;
+  font-size:16px;                      /* 16px stops iOS zooming the page on focus */
+  color:var(--fg); background:var(--bg-3);
+  border:1px solid var(--line-2); border-radius:var(--r);
+  -webkit-appearance:none; appearance:none;
+}
+.pw-input:focus{outline:2px solid var(--accent); outline-offset:1px}
 .sheet-pick{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:12px}
 .sheet-pick .sig-card{width:calc(50% - 5px)}
 

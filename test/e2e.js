@@ -48,6 +48,22 @@ async function openFile(page, file) {
   await page.waitForTimeout(2800);
 }
 
+/** Saves through the new choice sheet. Pass a password to protect the file. */
+async function saveDocument(page, password) {
+  const dl = page.waitForEvent('download', { timeout: 30000 });
+  await page.click('#btnExport');
+  await page.waitForTimeout(400);
+  if (password) {
+    await page.locator('.sheet-act', { hasText: 'Protect it with a password' }).click();
+    await page.waitForTimeout(300);
+    await page.locator('.pw-input').fill(password);
+    await page.locator('.sheet-act', { hasText: 'Save with this password' }).click();
+  } else {
+    await page.locator('.sheet-act', { hasText: 'Save without a password' }).click();
+  }
+  return await dl;
+}
+
 async function backToHome(page) {
   await page.click('#screen-doc [data-back="home"]');
   await page.waitForTimeout(400);
@@ -145,9 +161,7 @@ async function testSigningAPdf(browser) {
   await page.waitForTimeout(900);
   eq('places five signatures and two dates', await page.locator('.stamp').count(), 7);
 
-  const dl = page.waitForEvent('download', { timeout: 30000 });
-  await page.click('#btnExport');
-  const download = await dl;
+  const download = await saveDocument(page);
   const out = path.join(SHOTS, 'signed.pdf');
   await download.saveAs(out);
   eq('the export is named after the document', download.suggestedFilename(), 'agreement-signed.pdf');
@@ -255,10 +269,8 @@ async function testRotatedPage(browser) {
   await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
   await page.waitForTimeout(800);
 
-  const dl = page.waitForEvent('download', { timeout: 30000 });
-  await page.click('#btnExport');
   const out = path.join(SHOTS, 'rotated-signed.pdf');
-  await (await dl).saveAs(out);
+  await (await saveDocument(page)).saveAs(out);
   await page.waitForTimeout(500);
 
   await backToHome(page);
@@ -310,16 +322,108 @@ async function testPhotoOfAForm(browser) {
 
   await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
   await page.waitForTimeout(800);
-  const dl = page.waitForEvent('download', { timeout: 30000 });
-  await page.click('#btnExport');
   const out = path.join(SHOTS, 'photo-signed.pdf');
-  await (await dl).saveAs(out);
+  await (await saveDocument(page)).saveAs(out);
   ok('a photo comes back out as a signed PDF', fs.readFileSync(out).slice(0,5).toString() === '%PDF-');
 
   await backToHome(page);
   await openFile(page, out);
   const ink = await inkInPct(page, 0, spot);
   ok('the signature is baked into the photo', ink > 40, 'dark pixels: ' + ink);
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+async function testProtectedDocuments(browser) {
+  console.log('\nProtected documents');
+  const ctx = await browser.newContext({ viewport:{width:375,height:667}, deviceScaleFactor:2,
+    isMobile:true, hasTouch:true, acceptDownloads:true });
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await drawAndSaveSignature(page);
+
+  // 1. Owner-protected: opens without a prompt, and the signed copy must not
+  //    inherit the protection. This is what used to fail the export outright.
+  await openFile(page, path.join(FIX, 'protected.pdf'));
+  eq('an owner-protected document opens without asking anything', await page.locator('.page').count(), 2);
+  await page.click('#btnSignAll');
+  await page.waitForTimeout(5000);
+  await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
+  await page.waitForTimeout(800);
+
+  const plain = path.join(SHOTS, 'protected-signed.pdf');
+  await (await saveDocument(page)).saveAs(plain);
+  const plainBytes = fs.readFileSync(plain);
+  ok('signing it produces a real PDF', plainBytes.slice(0, 5).toString() === '%PDF-');
+  ok('and the signed copy carries no password', !plainBytes.includes('/Encrypt'),
+     'the output still has an /Encrypt entry');
+
+  // It must reopen with no prompt at all.
+  await backToHome(page);
+  await openFile(page, plain);
+  eq('the signed copy reopens with no password', await page.locator('.page').count(), 2);
+  ok('and nothing asked for one', await page.locator('.pw-input').count() === 0);
+
+  // 2. Adding a password on purpose.
+  await page.click('#btnSignAll');
+  await page.waitForTimeout(5000);
+  await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
+  await page.waitForTimeout(800);
+  const locked = path.join(SHOTS, 'locked-signed.pdf');
+  await (await saveDocument(page, 'hunter2')).saveAs(locked);
+  const lockedBytes = fs.readFileSync(locked);
+  ok('choosing a password produces a protected PDF', lockedBytes.includes('/Encrypt'),
+     'no /Encrypt entry in the output');
+
+  // 3. Reopening that file should ask for the password, and take it.
+  await backToHome(page);
+  await page.setInputFiles('#filePick', locked);
+  await page.waitForTimeout(2500);
+  eq('reopening it asks for the password', await page.locator('.pw-input').count(), 1);
+  await page.locator('.pw-input').fill('hunter2');
+  await page.locator('.sheet-act', { hasText: 'Open' }).click();
+  await page.waitForTimeout(3500);
+  eq('the right password opens it', await page.locator('.page').count(), 2);
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+async function testLockedDocument(browser) {
+  console.log('\nA document that needs a password to open');
+  const ctx = await browser.newContext({ viewport:{width:375,height:667}, deviceScaleFactor:2,
+    isMobile:true, hasTouch:true, acceptDownloads:true });
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await drawAndSaveSignature(page);
+
+  await page.setInputFiles('#filePick', path.join(FIX, 'locked.pdf'));
+  await page.waitForTimeout(2500);
+  eq('it asks for a password', await page.locator('.pw-input').count(), 1);
+
+  await page.locator('.pw-input').fill('wrong');
+  await page.locator('.sheet-act', { hasText: 'Open' }).click();
+  await page.waitForTimeout(2000);
+  ok('a wrong password says so and asks again',
+     (await page.locator('#sheetTitle').textContent()) === 'That password did not work');
+
+  await page.locator('.pw-input').fill('letmein');
+  await page.locator('.sheet-act', { hasText: 'Open' }).click();
+  await page.waitForTimeout(3500);
+  eq('the right one opens it', await page.locator('.page').count(), 2);
+
+  await page.click('#btnSignAll');
+  await page.waitForTimeout(5000);
+  await page.locator('.sheet-act', { hasText: 'Sign the selected lines' }).click();
+  await page.waitForTimeout(800);
+  const out = path.join(SHOTS, 'unlocked-signed.pdf');
+  await (await saveDocument(page)).saveAs(out);
+  const bytes = fs.readFileSync(out);
+  ok('signing it drops the password unless you ask to keep one', !bytes.includes('/Encrypt'),
+     'the output is still encrypted');
+
   ok('no console errors', errs.length === 0, errs.join(' | '));
   await ctx.close();
 }
@@ -354,6 +458,87 @@ async function testLayout(browser) {
        `scrollWidth ${r.scrollW} vs ${r.clientW} ${JSON.stringify(r.over)}`);
     await ctx.close();
   }
+}
+
+async function testSignatureIsRemembered(browser) {
+  console.log('\nRemembering the signature');
+  const ctx = await browser.newContext({ viewport:{width:375,height:667}, deviceScaleFactor:2,
+    isMobile:true, hasTouch:true });
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await drawAndSaveSignature(page);
+  eq('a signature is saved', await page.locator('#sigList .sig-card').count(), 1);
+  const before = await page.locator('#sigList .sig-card img').getAttribute('src');
+
+  // Closing and reopening the app.
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+  eq('it is still there after reopening', await page.locator('#sigList .sig-card').count(), 1);
+  const after = await page.locator('#sigList .sig-card img').getAttribute('src');
+  ok('and it is the same signature, not a blank one', after === before && after.length > 200);
+
+  // A brand new tab on the same device, as if opened days later.
+  const page2 = await ctx.newPage();
+  await page2.goto(BASE, { waitUntil: 'networkidle' });
+  await page2.waitForTimeout(600);
+  eq('a fresh visit finds it too', await page2.locator('#sigList .sig-card').count(), 1);
+
+  // It must be in durable storage, not only in the page's memory.
+  const stored = await page2.evaluate(async () => {
+    const db = await new Promise((res) => {
+      const r = indexedDB.open('inksign', 1);
+      r.onsuccess = () => res(r.result); r.onerror = () => res(null);
+    });
+    if (!db) return null;
+    return await new Promise((res) => {
+      const q = db.transaction('state', 'readonly').objectStore('state').get('inksign.state.v2');
+      q.onsuccess = () => res(q.result); q.onerror = () => res(null);
+    });
+  });
+  ok('it is written to the device database, not just the page',
+     !!(stored && stored.signatures && stored.signatures.length === 1), JSON.stringify(stored && Object.keys(stored)));
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
+}
+
+async function testAndroidStore(browser) {
+  console.log('\nThe Android app keeping signatures in its own files');
+  const ctx = await browser.newContext({ viewport:{width:375,height:667}, deviceScaleFactor:2,
+    isMobile:true, hasTouch:true });
+  // Stand in for the app's file storage, and block browser storage entirely so
+  // only the native path can possibly work.
+  await ctx.addInitScript(() => {
+    window.__file = { data: null };
+    window.InkSignAndroid = {
+      readStore: () => window.__file.data,
+      writeStore: (json) => { window.__file.data = json; },
+      saveBase64: () => {}, shareLast: () => {}, canShare: () => false
+    };
+    try {
+      Object.defineProperty(window, 'localStorage', { get() { throw new Error('blocked'); } });
+    } catch (_) {}
+    window.indexedDB = undefined;
+  });
+  const page = await ctx.newPage();
+  const errs = []; page.on('pageerror', e => errs.push(e.message));
+
+  await page.goto(BASE, { waitUntil: 'networkidle' });
+  await drawAndSaveSignature(page);
+  const written = await page.evaluate(() => window.__file.data);
+  ok('the signature is handed to the app to store on the device',
+     !!(written && JSON.parse(written).signatures.length === 1), String(written).slice(0, 60));
+  ok('and no warning is shown, because it was kept', await page.locator('#sheet').isHidden());
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForTimeout(600);
+  eq('it comes back from the app files with browser storage unavailable',
+     await page.locator('#sigList .sig-card').count(), 1);
+
+  ok('no console errors', errs.length === 0, errs.join(' | '));
+  await ctx.close();
 }
 
 async function testAndroidShell(browser) {
@@ -396,6 +581,8 @@ async function testAndroidShell(browser) {
   eq('Back deselects a stamp before leaving', await page.evaluate(() => window.inkSignBack()), true);
 
   await page.click('#btnExport');
+  await page.waitForTimeout(400);
+  await page.locator('.sheet-act', { hasText: 'Save without a password' }).click();
   await page.waitForTimeout(4000);
   const saved = await page.evaluate(() => window.__android.saved);
   ok('saving goes through the Android bridge', !!saved, JSON.stringify(saved));
@@ -438,7 +625,11 @@ async function testAndroidShell(browser) {
     await testTapToPlace(browser);
     await testRotatedPage(browser);
     await testPhotoOfAForm(browser);
+    await testProtectedDocuments(browser);
+    await testLockedDocument(browser);
     await testLayout(browser);
+    await testSignatureIsRemembered(browser);
+    await testAndroidStore(browser);
     await testAndroidShell(browser);
   } catch (err) {
     failed++;

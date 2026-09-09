@@ -24,12 +24,20 @@ export class SignDoc {
     this.image = null;           // {el,w,h} when the source is a picture
     this.name = 'document';
     this.dirty = false;          // true once there is unsaved ink on the page
+    this.password = '';          // set when the original was password protected
     this.onSelect = () => {};
     this.onTap = () => {};
     this._sel = null;
   }
 
   /* ================= loading ================= */
+
+  /**
+   * Asked for the password of a protected document. Return the password, or
+   * null to give up. Replaced by the app; refusing by default keeps the
+   * loader honest if nobody sets one.
+   */
+  onPasswordNeeded() { return Promise.resolve(null); }
 
   async load(file, onProgress) {
     this.name = (file.name || 'document').replace(/\.[^.]+$/, '');
@@ -38,13 +46,7 @@ export class SignDoc {
 
     if (isPdf) {
       this.bytes = new Uint8Array(buf);
-      // pdf.js transfers the buffer it is given, so hand it its own copy.
-      const task = pdfjsLib.getDocument({
-        data: this.bytes.slice(),
-        standardFontDataUrl: STANDARD_FONTS,
-        isEvalSupported: false
-      });
-      this.pdf = await task.promise;
+      this.pdf = await this._openPdf();
       for (let i = 1; i <= this.pdf.numPages; i++) {
         if (onProgress) onProgress(i, this.pdf.numPages);
         await this._addPdfPage(i);
@@ -55,6 +57,35 @@ export class SignDoc {
       this._addImagePage(img);
     }
     return this.pages.length;
+  }
+
+  /**
+   * Opens the PDF, asking for a password only if the file actually needs one.
+   * Many "protected" documents carry an owner password only and open with an
+   * empty one, so nobody should be prompted for those.
+   */
+  async _openPdf() {
+    // pdf.js transfers the buffer it is given, so hand it its own copy.
+    const task = pdfjsLib.getDocument({
+      data: this.bytes.slice(),
+      password: this.password,
+      standardFontDataUrl: STANDARD_FONTS,
+      isEvalSupported: false
+    });
+
+    task.onPassword = (retry, reason) => {
+      const wrong = reason === pdfjsLib.PasswordResponses.INCORRECT_PASSWORD;
+      Promise.resolve(this.onPasswordNeeded(wrong)).then((pw) => {
+        if (pw === null || pw === undefined) {
+          task.destroy();
+          return;
+        }
+        this.password = pw;
+        retry(pw);
+      });
+    };
+
+    return await task.promise;
   }
 
   async _addPdfPage(num) {

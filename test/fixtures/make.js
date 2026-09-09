@@ -1,5 +1,5 @@
 /* Builds the documents the end-to-end test signs. */
-const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb, degrees } = require('@cantoo/pdf-lib');
 const fs = require('fs');
 const path = require('path');
 const OUT = __dirname;
@@ -62,4 +62,26 @@ async function rotated() {
   fs.writeFileSync(path.join(OUT, 'rotated.pdf'), await d.save());
 }
 
-(async () => { await agreement(); await rotated(); console.log('fixtures written to', OUT); })();
+/* A document protected the way scanners and office tools protect one: an owner
+   password restricting changes, and no password needed to open it. Signing one
+   of these must produce an ordinary, unlocked PDF. */
+async function protectedCopy() {
+  const d = await PDFDocument.load(fs.readFileSync(path.join(OUT, 'agreement.pdf')));
+  d.encrypt({ ownerPassword: 'ownersecret' });
+  fs.writeFileSync(path.join(OUT, 'protected.pdf'), await d.save({ useObjectStreams: false }));
+}
+
+/* And one that genuinely cannot be opened without a password. */
+async function lockedCopy() {
+  const d = await PDFDocument.load(fs.readFileSync(path.join(OUT, 'agreement.pdf')));
+  d.encrypt({ userPassword: 'letmein', ownerPassword: 'letmein' });
+  fs.writeFileSync(path.join(OUT, 'locked.pdf'), await d.save({ useObjectStreams: false }));
+}
+
+(async () => {
+  await agreement();
+  await rotated();
+  await protectedCopy();
+  await lockedCopy();
+  console.log('fixtures written to', OUT);
+})();
