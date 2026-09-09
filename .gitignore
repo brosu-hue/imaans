@@ -14,3 +14,7 @@ android/keystore.properties
 # tooling
 node_modules/
 .DS_Store
+
+# the test harness symlinks the fixtures into www/ so the browser can fetch
+# them, and removes it on exit -- a cancelled run leaves it behind
+www/fixtures
