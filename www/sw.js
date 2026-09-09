@@ -1,4 +1,11 @@
-/* Offline shell. Bump VERSION whenever the app files change. */
+/*
+ * Offline shell.
+ *
+ * VERSION is what decides whether an installed app ever sees a new build: the
+ * browser only installs a worker whose bytes differ from the one it has. The
+ * published copy gets the commit stamped into the line below at build time, so
+ * every deploy is a new worker. The value here is only for local development.
+ */
 const VERSION = 'inksign-v1';
 
 const SHELL = [
@@ -37,6 +44,21 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+/* The pdf.js and pdf-lib builds never change without their filename changing,
+   and they are by far the largest files here, so they are answered from the
+   cache and never checked again. */
+function isImmutable(url) {
+  return url.pathname.indexOf('/vendor/') !== -1;
+}
+
+function put(req, res) {
+  if (res && res.status === 200 && res.type === 'basic') {
+    const copy = res.clone();
+    caches.open(VERSION).then(c => c.put(req, copy)).catch(() => {});
+  }
+  return res;
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -44,16 +66,29 @@ self.addEventListener('fetch', (e) => {
   if (url.origin !== self.location.origin) return;
 
   e.respondWith(
-    caches.match(req).then(hit => {
-      if (hit) return hit;
-      return fetch(req).then(res => {
-        // Cache the PDF fonts and anything else we reach for at runtime.
-        if (res && res.status === 200 && res.type === 'basic') {
-          const copy = res.clone();
-          caches.open(VERSION).then(c => c.put(req, copy)).catch(() => {});
-        }
-        return res;
-      }).catch(() => caches.match('index.html'));
+    caches.match(req).then((hit) => {
+      if (hit && isImmutable(url)) return hit;
+
+      const fresh = fetch(req)
+        .then(res => put(req, res))
+        .catch(() => {
+          // Offline. A page still gets the shell; anything else fails as it
+          // would on the network, because answering a script or a stylesheet
+          // with the HTML of index.html only produces a baffling parse error.
+          if (hit) return hit;
+          if (req.mode === 'navigate') return caches.match('index.html');
+          return Response.error();
+        });
+
+      // Serve what we have and refresh it in the background, so the next start
+      // is on the new build rather than pinned to whatever installed first.
+      if (hit) {
+        // Keeping the worker alive for the refresh is a bonus, not a
+        // requirement, and the event may already have settled by now.
+        try { e.waitUntil(fresh.catch(() => {})); } catch (_) { }
+        return hit;
+      }
+      return fresh;
     })
   );
 });

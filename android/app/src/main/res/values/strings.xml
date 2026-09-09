@@ -2,5 +2,10 @@
 <resources>
     <string name="app_name">InkSign</string>
     <string name="saved_to_downloads">Saved to Downloads</string>
+    <string name="saved_many">Saved %1$d files to Downloads</string>
+    <string name="saved_some">Saved %1$d of %2$d files to Downloads</string>
     <string name="save_failed">Could not save the file</string>
+    <string name="open_failed">Could not open that file</string>
+    <string name="file_too_large">That file is too big to open — the limit is %1$d MB</string>
+    <string name="nothing_to_share">There is nothing to send yet</string>
 </resources>

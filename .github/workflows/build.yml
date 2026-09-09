@@ -6,14 +6,20 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Read is all most of this needs. The one job that publishes asks for more.
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 jobs:
   # Nothing is published unless the app actually signs a document correctly.
   test:
+    # A pull request from a branch in this repository is already being built by
+    # the push trigger above; without this every one of them runs twice.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name != github.repository
+      || !(github.event.pull_request.head.ref == 'main'
+      || startsWith(github.event.pull_request.head.ref, 'claude/'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,7 +28,22 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+
+      # The browser download is ~120MB and identical from run to run, so it is
+      # kept between runs and keyed on the version the lockfile pins.
+      - id: pw
+        run: |
+          echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")" >> "$GITHUB_OUTPUT"
+      - id: pwcache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - if: steps.pwcache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      # The cache holds the browser, not the system libraries it links against.
+      - if: steps.pwcache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       - run: npm run fixtures
       - run: npm test
       - if: failure()
@@ -35,6 +56,9 @@ jobs:
   apk:
     needs: test
     runs-on: ubuntu-latest
+    # Only this job writes anything: the APK goes out as a release.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -145,6 +169,10 @@ jobs:
     needs: test
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -167,6 +195,15 @@ jobs:
             echo "https://$(echo "$GITHUB_REPOSITORY" | cut -d/ -f1).github.io/$(echo "$GITHUB_REPOSITORY" | cut -d/ -f2)/"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "::warning::Website not published: switch Pages on under Settings -> Pages."
+      # An installed app only picks up a new build when the service worker's own
+      # bytes change, so the commit is stamped into it on the way out. The file
+      # in the repository keeps its plain version for local development.
+      - name: Stamp the build into the service worker
+        if: steps.pages.outcome == 'success'
+        run: |
+          sed -i "s|^const VERSION = .*|const VERSION = 'inksign-${GITHUB_SHA}';|" www/sw.js
+          grep -n "^const VERSION" www/sw.js
+
       - if: steps.pages.outcome == 'success'
         uses: actions/upload-pages-artifact@v3
         with:
