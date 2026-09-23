@@ -1,0 +1,30 @@
+<title>IMAANS</title>
+<style>
+  :root { padding: 0 !important; color-scheme: dark; }
+  html, body { height: 100%; margin: 0; padding: 0; background: #050506; overflow: hidden; overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; touch-action: none; }
+  body { position: fixed; top: 0; right: 0; bottom: 0; left: 0; }
+  #app { position: fixed; top: 0; right: 0; bottom: 0; left: 0; background: #050506; }
+  #scene { display: block; width: 100%; height: 100%; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  /* CSS-only pre-loader (crown · IMAANS · slogan), visible while app.js downloads; the ui module's loader
+     sits in exactly the same place and takes over seamlessly */
+  html:not(.me-ui) body::before { content: ''; position: fixed; z-index: 20; top: 0; right: 0; bottom: 0; left: 0;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='-100 -72 200 136'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23f6dd8c'/%3E%3Cstop offset='.55' stop-color='%23d9ab48'/%3E%3Cstop offset='1' stop-color='%23a97a1f'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='url(%23g)'%3E%3Cpath d='M-96 35V-6l38 32 32-71L0-67l26 22 32 71 38-32v41q0 16-16 16H-80q-16 0-16-16z'/%3E%3Crect x='-96' y='35' width='192' height='24' rx='6'/%3E%3C/g%3E%3C/svg%3E") no-repeat 50% calc(50% - 60px) / 70px 48px,
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='24' viewBox='0 0 320 24'%3E%3Ctext x='160' y='17' text-anchor='middle' font-family='Georgia, serif' font-size='16' letter-spacing='.6' fill='%23faf7f2' fill-opacity='.9'%3EStep into style. Live confidently.%3C/text%3E%3C/svg%3E") no-repeat 50% calc(100% - 26px - env(safe-area-inset-bottom, 0px)) / 320px 24px,
+      radial-gradient(110% 80% at 50% 44%, #221f27 0, #121114 48%, #050506 100%); }
+  html:not(.me-ui) body::after { content: 'IMAANS'; position: fixed; z-index: 21; left: 0; right: 0; top: 50%; margin-top: -22px;
+    text-align: center; font: 600 44px/44px 'Trajan Pro', Cinzel, 'Times New Roman', Georgia, serif; letter-spacing: .16em; padding-left: .16em;
+    color: #d9ab48; background: linear-gradient(180deg, #f6dd8c 0%, #d9ab48 55%, #a97a1f 100%); -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; animation: me-pre 2.4s ease-in-out infinite alternate; }
+  @media (max-width: 374px) { html:not(.me-ui) body::after { font-size: 38px; line-height: 38px; margin-top: -19px; } }
+  @media (max-height: 500px) and (orientation: landscape) {
+    html:not(.me-ui) body::before { background-position: 50% calc(50% - 50px), 50% calc(100% - 14px - env(safe-area-inset-bottom, 0px)), 0 0; background-size: 58px 40px, 320px 24px, auto; }
+    html:not(.me-ui) body::after { font-size: 36px; line-height: 36px; margin-top: -18px; } }
+  @media (min-width: 900px) and (min-height: 560px) {
+    html:not(.me-ui) body::before { background-position: 50% calc(50% - 76px), 50% calc(100% - 26px), 0 0; background-size: 88px 60px, 320px 24px, auto; }
+    html:not(.me-ui) body::after { font-size: 60px; line-height: 60px; margin-top: -30px; } }
+  @keyframes me-pre { from { opacity: .55; } to { opacity: 1; } }
+</style>
+<div id="app"></div>
+<script src="app.js"></script>

@@ -1,0 +1,32 @@
+{
+  "name": "imaans-3d-store",
+  "version": "0.2.0",
+  "description": "IMAANS (Imaan's Shoes) 3-D boutique \u2014 three.js, phone-first",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "shot": "node tools/shot.mjs",
+    "qa": "node tools/qa-run.mjs",
+    "qa:quick": "node tools/qa-run.mjs --quick",
+    "import-content": "node tools/imaans-import.mjs",
+    "serve": "npx http-server . -p 8080 -c-1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fontsource/bodoni-moda": "^5.3.0",
+    "@fontsource/jost": "^5.3.0",
+    "@gltf-transform/cli": "^4.5.0",
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/extensions": "^4.5.0",
+    "@gltf-transform/functions": "^4.5.0",
+    "esbuild": "^0.28.2",
+    "meshoptimizer": "^1.2.0",
+    "sharp": "^0.35.4",
+    "three": "^0.170.0"
+  },
+  "private": true,
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

@@ -1,0 +1,512 @@
+[
+ {
+  "file": "brushed_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "brushed_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "concrete_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "concrete_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "concrete_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-boucle_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-boucle_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-boucle_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-cable_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-cable_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-cable_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-canvas_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-canvas_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-canvas_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-corduroy_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-corduroy_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-corduroy_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-cotton_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-cotton_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-cotton_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-denim-indigo_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-denim_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-denim_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-denim_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-fleece_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-fleece_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-fleece_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-jersey_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-jersey_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-jersey_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-knit_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-knit_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-knit_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-leather_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-leather_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-leather_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-linen_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-linen_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-linen_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-puffer_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-puffer_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-puffer_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-satin_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-satin_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-satin_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-silk_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-silk_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-silk_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-suede_c.webp",
+  "source": "Khronos glTF-Sample-Assets SheenWoodLeatherSofa.glb (Brown fabric base)",
+  "license": "CC BY 4.0",
+  "author": "Darmstadt Graphics Group GmbH, Eric Chadwick; original model Fran Calvente (Poly Haven, CC0)"
+ },
+ {
+  "file": "fab-suede_n.webp",
+  "source": "Khronos glTF-Sample-Assets SheenWoodLeatherSofa.glb (Brown fabric base)",
+  "license": "CC BY 4.0",
+  "author": "Darmstadt Graphics Group GmbH, Eric Chadwick; original model Fran Calvente (Poly Haven, CC0)"
+ },
+ {
+  "file": "fab-suede_r.webp",
+  "source": "Khronos glTF-Sample-Assets SheenWoodLeatherSofa.glb (Brown fabric base)",
+  "license": "CC BY 4.0",
+  "author": "Darmstadt Graphics Group GmbH, Eric Chadwick; original model Fran Calvente (Poly Haven, CC0)"
+ },
+ {
+  "file": "fab-tweed_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-tweed_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-tweed_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-velvet_c.webp",
+  "source": "Khronos glTF-Sample-Assets SheenChair.glb (velvet normal/base, wood base)",
+  "license": "CC0 1.0",
+  "author": "Wayfair LLC / Khronos"
+ },
+ {
+  "file": "fab-velvet_n.webp",
+  "source": "Khronos glTF-Sample-Assets SheenChair.glb (velvet normal/base, wood base)",
+  "license": "CC0 1.0",
+  "author": "Wayfair LLC / Khronos"
+ },
+ {
+  "file": "fab-velvet_r.webp",
+  "source": "Khronos glTF-Sample-Assets SheenChair.glb (velvet normal/base, wood base)",
+  "license": "CC0 1.0",
+  "author": "Wayfair LLC / Khronos"
+ },
+ {
+  "file": "fab-wool_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-wool_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "fab-wool_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "marble-green_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "marble_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "marble_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "oak-floor_c.webp",
+  "source": "three.js examples textures/hardwood2_{diffuse,bump,roughness}.jpg (planks recomposed into herringbone, recoloured)",
+  "license": "MIT (three.js repository examples)",
+  "author": "three.js authors"
+ },
+ {
+  "file": "oak-floor_n.webp",
+  "source": "three.js examples textures/hardwood2_{diffuse,bump,roughness}.jpg (planks recomposed into herringbone, recoloured)",
+  "license": "MIT (three.js repository examples)",
+  "author": "three.js authors"
+ },
+ {
+  "file": "oak-floor_r.webp",
+  "source": "three.js examples textures/hardwood2_{diffuse,bump,roughness}.jpg (planks recomposed into herringbone, recoloured)",
+  "license": "MIT (three.js repository examples)",
+  "author": "three.js authors"
+ },
+ {
+  "file": "paper_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "paper_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "plaster-deep_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "plaster_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "plaster_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "rug_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "rug_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "stone-checker_c.webp",
+  "source": "three.js examples textures/FloorsCheckerboard_S_{Diffuse,Normal}.jpg",
+  "license": "MIT (three.js repository examples)",
+  "author": "three.js authors"
+ },
+ {
+  "file": "stone-checker_n.webp",
+  "source": "three.js examples textures/FloorsCheckerboard_S_{Diffuse,Normal}.jpg",
+  "license": "MIT (three.js repository examples)",
+  "author": "three.js authors"
+ },
+ {
+  "file": "terrazzo_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "terrazzo_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "terrazzo_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "travertine_c.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "travertine_n.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "travertine_r.webp",
+  "source": "procedural (tools/materials-gen.py)",
+  "license": "CC0",
+  "author": "IMAANS store materials pass (own work)"
+ },
+ {
+  "file": "wood-oak_c.webp",
+  "source": "Khronos glTF-Sample-Assets SheenChair.glb (velvet normal/base, wood base)",
+  "license": "CC0 1.0",
+  "author": "Wayfair LLC / Khronos"
+ },
+ {
+  "file": "wood-walnut_c.webp",
+  "source": "Khronos glTF-Sample-Assets SheenChair.glb (velvet normal/base, wood base)",
+  "license": "CC0 1.0",
+  "author": "Wayfair LLC / Khronos"
+ },
+ {
+  "file": "wood_n.webp",
+  "source": "Khronos glTF-Sample-Assets SheenChair.glb (velvet normal/base, wood base)",
+  "license": "CC0 1.0",
+  "author": "Wayfair LLC / Khronos"
+ },
+ {
+  "file": "wood_r.webp",
+  "source": "Khronos glTF-Sample-Assets SheenChair.glb (velvet normal/base, wood base)",
+  "license": "CC0 1.0",
+  "author": "Wayfair LLC / Khronos"
+ }
+]
