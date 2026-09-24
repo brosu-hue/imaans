@@ -1,13 +1,13 @@
 // footwear — materials built on the SAME shader-program recipes the architecture uses (see
-// architecture/mats.js), so the whole shoe salon's joinery, rug, lights, shadows and acrylic compile
+// architecture/mats.js), so the shoe fixtures' joinery, LED lines, tier wash, shadows and glass compile
 // no programs of their own. A program is shared when the material type + the set of maps (and their
 // uv channels) + flags match; colours / roughness / metalness / map contents are uniforms.
 //
 //   std   MeshStandardMaterial  map + normalMap + roughnessMap (uv0) + lightMap + aoMap (uv1)
 //         → geometry needs `uv` (metres) AND `uv1` (any; the dummy light/AO maps are 1×1)
-//   glow  MeshBasicMaterial     map — LED lines (intensity ramp, see rampUV) and the backlit panels
-//   add   MeshBasicMaterial     map, transparent — contact shadows (normal blend) + halos (additive)
-//   gild  MeshStandardMaterial  map + emissiveMap, alphaTest, transparent — acrylic, section plaques
+//   glow  MeshBasicMaterial     map — LED lines (intensity ramp, see rampUV) and the painted tier wash
+//   add   MeshBasicMaterial     map, transparent — contact shadows
+//   gild  MeshStandardMaterial  map + emissiveMap, alphaTest, transparent — the island's glass
 //
 // If architecture ever changes its recipe these simply become footwear's own (≤ 4) programs.
 import * as THREE from 'three';
@@ -77,10 +77,10 @@ export function rampUV(geo, k) {
   return geo;
 }
 
-/** Transparent unlit (add program): contact shadows (normal blending, black) / halos (additive). */
-export function addMat(name, tex, { color = '#ffffff', additive = false } = {}) {
+/** Transparent unlit (add program): contact shadows (normal blending, black). */
+export function addMat(name, tex, { color = '#ffffff' } = {}) {
   const m = new THREE.MeshBasicMaterial({ map: tex, color, transparent: true, depthWrite: false,
-    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   m.name = 'footwear:' + name;
   return m;
 }
@@ -97,10 +97,4 @@ export function gildMat(name, tex = null, o = {}) {
   if (o.env !== undefined) m.envMapIntensity = o.env;
   m.name = 'footwear:' + name;
   return m;
-}
-
-/** Adds a zero uv1 attribute (the std program reads its 1×1 light/AO dummies through it). */
-export function ensureUv1(geo) {
-  if (!geo.attributes.uv1) geo.setAttribute('uv1', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 2), 2));
-  return geo;
 }

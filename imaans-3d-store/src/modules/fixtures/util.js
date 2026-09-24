@@ -4,10 +4,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
-export const DEG = Math.PI / 180;
 export const lerp = (a, b, t) => a + (b - a) * t;
-export const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
-export const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 
 const _q = new THREE.Quaternion(), _e = new THREE.Euler(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
 /** Matrix from position, euler rotation [x,y,z] (rad, order XYZ unless given) and scale (number | [x,y,z]). */
@@ -110,71 +107,6 @@ export function solidUV(g, pt) {
 }
 
 /**
- * Reeded (fluted) cylinder band: convex half-round reeds around the circumference.
- * rBot/rTop = radius at the reed bottoms (valley), reed depth d, n reeds, k samples per reed.
- * UV: vertical grain (u = y, v = arc) for oak.
- */
-export function reededCylinder(rBot, rTop, y0, y1, n = 24, d = 0.012, k = 6) {
-  const N = n * k; const pos = [], uv = [], idx = [];
-  const rows = [[y0, rBot], [y1, rTop]];
-  for (let row = 0; row < 2; row++) {
-    const [y, R] = rows[row];
-    for (let i = 0; i <= N; i++) {
-      const th = (i / N) * Math.PI * 2;
-      const s = 2 * ((i % k) / k) - 1; const r = R + d * Math.sqrt(Math.max(0, 1 - s * s));
-      pos.push(Math.cos(th) * r, y, -Math.sin(th) * r);
-      uv.push(y, th * R);
-    }
-  }
-  for (let i = 0; i < N; i++) { const a = i, b = i + 1, c = N + 1 + i, e = N + 2 + i; idx.push(a, b, e, a, e, c); }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  g.setIndex(idx);
-  g.computeVertexNormals(); // smooth reed shading from the actual geometry (seam duplicated → tiny crease)
-  return g;
-}
-
-/**
- * Reeded flat panel in XY (width w along x centred, height h from y=0), reeds bulge toward +z.
- * pitch = reed width, d = depth. Vertical grain UVs.
- */
-export function reededPanel(w, h, pitch = 0.032, d = 0.009, k = 6) {
-  const n = Math.max(1, Math.round(w / pitch)); const p = w / n; const N = n * k;
-  const pos = [], uv = [], idx = [];
-  for (let row = 0; row < 2; row++) {
-    const y = row ? h : 0;
-    for (let i = 0; i <= N; i++) {
-      const x = -w / 2 + (i / N) * w; const ph = (i % k) / k; const s = 2 * ph - 1;
-      const z = d * Math.sqrt(Math.max(0, 1 - s * s));
-      pos.push(x, y, z); uv.push(y, x);
-    }
-  }
-  for (let i = 0; i < N; i++) { const a = i, b = i + 1, c = N + 1 + i, e = N + 2 + i; idx.push(a, b, e, a, e, c); }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  g.setIndex(idx); g.computeVertexNormals();
-  return g;
-}
-
-/** Arched frame outline (flat, XY): rectangle w × h whose top is a semicircle; returns THREE.Shape. */
-export function archShape(w, h, inset = 0) {
-  const r = w / 2 - inset, x0 = -r, x1 = r, yTop = h - w / 2; const s = new THREE.Shape();
-  s.moveTo(x0, inset); s.lineTo(x1, inset); s.lineTo(x1, yTop);
-  s.absarc(0, yTop, r, 0, Math.PI, false); s.lineTo(x0, inset);
-  return s;
-}
-
-/** Planar UVs in metres for an extruded/flat XY geometry (u = x, v = y). */
-export function uvXY(g, sx = 1, sy = 1, ox = 0, oy = 0) {
-  const p = g.attributes.position; const a = new Float32Array(p.count * 2);
-  for (let i = 0; i < p.count; i++) { a[i * 2] = (p.getX(i) + ox) * sx; a[i * 2 + 1] = (p.getY(i) + oy) * sy; }
-  g.setAttribute('uv', new THREE.BufferAttribute(a, 2));
-  return g;
-}
-
-/**
  * Collects geometries per material key; bakes transforms; keeps position/normal/uv (+color);
  * returns handles so items can later be found (raycast faceIndex) or recoloured (vertex range).
  */
@@ -236,13 +168,6 @@ export function setColor(g, color) {
   g.setAttribute('color', new THREE.BufferAttribute(a, 3));
   return g;
 }
-/** Vertical colour gradient (y-based) — e.g. baked darkening toward a surface. */
-export function gradeColor(g, fn) {
-  const p = g.attributes.position; const c = g.attributes.color;
-  for (let i = 0; i < p.count; i++) { const k = fn(p.getX(i), p.getY(i), p.getZ(i)); c.setXYZ(i, c.getX(i) * k, c.getY(i) * k, c.getZ(i) * k); }
-  return g;
-}
-
 /** Recolour a batch handle after build (vertex colour range). mul keeps any baked shading ratio. */
 export function recolor(handle, color, shade = null) {
   if (!handle || !handle.mesh) return;
@@ -254,12 +179,32 @@ export function recolor(handle, color, shade = null) {
   }
   attr.needsUpdate = true;
 }
-/** Snapshot of a handle's per-vertex luminance ratio relative to its first colour (to preserve grading). */
-export function shadeOf(handle) {
-  const attr = handle.mesh.geometry.attributes.color; const out = new Float32Array(handle.count);
-  let ref = 0; for (let i = 0; i < handle.count; i++) ref = Math.max(ref, attr.getX(handle.start + i) + attr.getY(handle.start + i) + attr.getZ(handle.start + i));
-  for (let i = 0; i < handle.count; i++) { const j = handle.start + i; out[i] = (attr.getX(j) + attr.getY(j) + attr.getZ(j)) / (ref || 1); }
-  return out;
+/**
+ * Hide (on = true) / restore a batch handle's triangles by collapsing its vertex range onto one point — how a
+ * merged item (a pair of sunglasses) leaves its stand without a mesh of its own. Uploads only that range.
+ */
+export function collapse(handle, on) {
+  if (!handle || !handle.mesh) return;
+  const a = handle.mesh.geometry.attributes.position, s = handle.start * 3, n = handle.count * 3;
+  if (!handle.orig) handle.orig = a.array.slice(s, s + n);
+  const o = handle.orig;
+  for (let i = 0; i < n; i++) a.array[s + i] = on ? o[i % 3] : o[i];
+  if (a.addUpdateRange) { a.clearUpdateRanges(); a.addUpdateRange(s, n); }
+  a.needsUpdate = true;
+}
+
+/**
+ * Prism from a footprint polygon: pts = [[x, z], …] (counter-clockwise seen from above, local metres),
+ * extruded from y0 to y1. Flat sides, caps top and bottom.
+ */
+export function prismXZ(pts, y0, y1, bevel = 0) {
+  const sh = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(x, -z)));
+  const g = new THREE.ExtrudeGeometry(sh, bevel
+    ? { depth: y1 - y0 - 2 * bevel, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelOffset: -bevel, bevelSegments: 1, curveSegments: 1 }
+    : { depth: y1 - y0, bevelEnabled: false, curveSegments: 1 });
+  g.rotateX(-Math.PI / 2);   // shape (x, −z) → footprint; extrusion → +y
+  g.translate(0, y0 + bevel, 0);
+  return g;
 }
 
 /**

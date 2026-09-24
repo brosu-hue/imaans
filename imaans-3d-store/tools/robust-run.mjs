@@ -226,7 +226,7 @@ if (ready && A.shots) {
   const stops = await page.evaluate(() => window.__ctx.hotspots.list.map(h => ({ id: h.id, pos: h.pos, look: h.look })));
   await page.evaluate(() => { const u = window.__ui; try { u && u.hud && u.hud.closeSheets && u.hud.closeSheets(); } catch (e) {} window.__ctx.ui.hideCard(); });
   await sleep(1500);
-  const want = ['clothes', 'shoe', 'acc', 'spring', 'plinth', 'window'];
+  const want = ['clothing', 'shoe', 'acc', 'island', 'window'];
   const chosen = []; for (const w of want) { const s = stops.find(s => s.id.toLowerCase().includes(w) && !chosen.includes(s)); if (s) chosen.push(s); }
   for (const s of chosen.slice(0, 4)) {
     await page.evaluate(({ pos, look }) => { window.__setCam(pos[0], pos[1], pos[2], look[0], look[1], look[2]); }, s);

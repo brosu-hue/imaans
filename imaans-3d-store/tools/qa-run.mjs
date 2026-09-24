@@ -27,31 +27,32 @@ const MODULE_PROGRAMS = { architecture: 12, footwear: 10, apparel: 14, fixtures:
 const ASSET_DIR = path.join(ROOT, SRC === 'dist' ? 'dist/assets' : 'assets');
 fs.mkdirSync(path.join(OUT, 'tiles'), { recursive: true });
 
-// Six budget viewpoints [name, pos, look] and ~16 contact-sheet viewpoints.
+// Six budget viewpoints [name, pos, look] and ~16 contact-sheet viewpoints — the real shop (src/core/layout.js
+// TOUR / GOTO stops; the start is outside on the pavement).
 const VIEWS = [
-  ['start', [0, 1.62, 8.4], [0, 1.45, -4]],
-  ['clothes', [-2.35, 1.62, 3.1], [-6.7, 1.3, -1.3]],
-  ['shoes', [0, 1.62, -5.6], [0, 1.62, -10.8]],
-  ['accessories+checkout', [0.95, 1.62, 6.9], [4.5, 1.0, 5.2]],
-  ['plinth', [1.75, 1.62, 1.35], [0, 1.1, -2.15]],
-  ['lounge', [3.25, 1.62, 2.7], [6.9, 0.95, 0.75]],
+  ['start', [0, 1.62, 7.74], [0, 2.18, 4.4]],
+  ['down-the-shop', [-0.25, 1.7, 3.75], [0.15, 1.2, -2.2]],
+  ['shoes', [0.45, 1.62, 3.0], [-2.2, 1.25, 3.2]],
+  ['clothes', [-0.55, 1.62, 2.25], [2.2, 1.25, 1.45]],
+  ['counter', [-0.45, 1.62, 2.05], [1.83, 1.35, 3.07]],
+  ['back-to-front', [-0.85, 1.7, -1.35], [0.3, 1.5, 4.4]],
 ];
 const SHEET_VIEWS = [
-  ['02 Window left', [-1.35, 1.62, 7.55], [-4.9, 1.15, 10.1]],
-  ['03 Window right', [1.35, 1.62, 7.55], [4.9, 1.15, 10.1]],
-  ['04 Clothes - rails', [-2.35, 1.62, 3.1], [-6.7, 1.3, -1.3]],
-  ['05 Clothes - wall bays', [-3.1, 1.62, 7.4], [-7.9, 1.45, 2.4]],
-  ['06 Clothes - denim cubbies', [-5.35, 1.62, -8.05], [-7.7, 1.35, -9.25]],
-  ['07 The Spring Edit plinth', [1.75, 1.62, 1.35], [0, 1.1, -2.15]],
-  ['08 Shoes - the wall', [0, 1.62, -5.6], [0, 1.62, -10.8]],
-  ['09 Shoes - try-on salon', [1.7, 1.5, -6.05], [-0.25, 0.55, -8.35]],
-  ['10 Dress rail', [1.85, 1.62, -1.35], [3.9, 1.25, -4.5]],
-  ['11 Fitting rooms', [3.35, 1.62, -1.35], [6.4, 1.35, -4.7]],
-  ['12 Lounge', [3.25, 1.62, 2.7], [6.9, 0.95, 0.75]],
-  ['13 Accessories table', [0.95, 1.5, 6.35], [2.35, 0.95, 4.75]],
-  ['14 Checkout', [3.55, 1.62, 7.6], [6.2, 1.1, 5.7]],
-  ['15 Knit table', [-0.55, 1.62, 7.3], [-2.1, 0.8, 4.8]],
-  ['16 Back wall to storefront', [0, 1.9, -9.4], [0, 1.3, 6]],
+  ['02 Windows (from the pavement)', [-0.9, 1.62, 6.4], [-1.4, 1.1, 3.85]],
+  ['03 Shoes - wall by the window', [0.45, 1.62, 3.0], [-2.2, 1.25, 3.2]],
+  ['04 Shoes - display step', [-0.4, 1.55, 2.25], [-2.0, 0.55, 1.5]],
+  ['05 Down the shop', [-0.25, 1.7, 3.75], [0.15, 1.2, -2.2]],
+  ['06 Clothes - the rail', [-0.55, 1.62, 2.25], [2.2, 1.25, 1.45]],
+  ['07 Shoes - the glass island', [-1.1, 1.62, 1.6], [0.2, 0.75, 0.0]],
+  ['08 The mirror', [-0.75, 1.62, 0.35], [0.2, 1.25, -2.2]],
+  ['09 Folded shelves', [0.95, 1.62, 0.0], [2.25, 1.2, -1.1]],
+  ['10 Back toward the front', [-0.85, 1.7, -1.35], [0.3, 1.5, 4.4]],
+  ['11 The counter', [-0.45, 1.62, 2.05], [1.83, 1.35, 3.07]],
+  ['12 Shoes - the long wall', [0.95, 1.62, -0.2], [-2.2, 1.25, -0.2]],
+  ['13 Shoes - the narrow shelf', [-0.9, 1.55, -0.3], [-0.88, 1.1, -2.1]],
+  ['14 Clothes - the short rail', [1.1, 1.62, 0.2], [1.43, 1.2, -2.0]],
+  ['15 Accessories - step & shelves', [1.2, 1.62, 1.2], [2.2, 1.1, -0.45]],
+  ['16 Storefront from inside', [0.3, 1.7, -1.8], [0, 1.5, 4.4]],
 ];
 
 // ------------------------------------------------------------------------------------------------ results
@@ -348,7 +349,7 @@ async function uiFlows(s, hint) {
   const esc = async () => { await page.keyboard.press('Escape'); await sleep(250); await page.keyboard.press('Escape'); await sleep(250); };
   const center = (sel, within) => ev(([sel, within]) => { const Q = window.__qa; const scope = within === 'card' ? Q.card() : within === 'sheet' ? Q.anySheet() : document; if (!scope) return null; const el = [...scope.querySelectorAll(sel)].find(Q.vis); if (!el) return null; el.scrollIntoView({ block: 'nearest' }); const r = el.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2, el.textContent.replace(/\s+/g, ' ').trim()]; }, [sel, within]);
   const tapSel = async (sel, within) => { const c = await center(sel, within); if (!c) return null; await tap(cdp, c[0], c[1]); await frames(page, 2); return c; };
-  const START = [[0, 1.62, 8.4], [0, 1.62, -4]];
+  const START = [[0, 1.62, 7.74], [0, 1.62, 0]];   // on the pavement, facing the shop
   const run = async (name, fn) => { try { await fn(); } catch (e) { add(name, 'FAIL', 'exception: ' + e.message.split('\n')[0]); } };
 
   await run('drag-look', async () => {
@@ -375,7 +376,7 @@ async function uiFlows(s, hint) {
   // ---- tap a real product
   let target = null;
   await run('tap-card', async () => {
-    const VPS = [['shoes', [0, 1.62, -6.6], [0, 1.3, -10.8]], ['clothes', [-2.35, 1.62, 3.1], [-6.7, 1.3, -1.3]], ['plinth', [1.75, 1.62, 1.35], [0, 1.1, -2.15]], ['accessories', [0.95, 1.5, 6.35], [2.35, 0.95, 4.75]]];
+    const VPS = [['shoes', [0.45, 1.62, 3.0], [-2.2, 1.25, 3.2]], ['clothes', [-0.55, 1.62, 2.25], [2.2, 1.25, 1.45]], ['island', [-1.1, 1.62, 1.6], [0.2, 0.75, 0.0]], ['accessories', [-0.45, 1.62, 2.05], [1.83, 1.35, 3.07]]];
     for (const [vp, p, t] of VPS) {
       await TP(p, t);
       target = await ev(() => {
@@ -546,15 +547,15 @@ async function uiFlows(s, hint) {
   // ---- Go to: every department is listed and reachable
   await run('goto-list', async () => {
     await esc();
-    const DEPTS = await ev(() => { const D = window.__ctx.layout.DEPARTMENTS || {}; const promo = ((window.__ctx.brand.promos || [])[0] || {}).name || ''; return { clothes: D.clothes && D.clothes.name, shoes: D.shoes && D.shoes.name, accessories: D.accessories && D.accessories.name, newIn: D.newIn && D.newIn.name, promo, windows: D.windows && D.windows.name, services: D.services && D.services.name }; });
-    const RULES = { clothes: /cloth/i, shoes: /shoe/i, accessories: /accessor/i, newIn: new RegExp(['spring', 'edit', 'new in', 'new-collection', 'plinth', ...String(DEPTS.promo).toLowerCase().split(/\s+/).filter(w => w.length > 3)].join('|'), 'i'), windows: /window/i, services: /fitting|lounge/i };
+    // the real shop has no plinth, fitting rooms or lounge: the departments are Clothes, Shoes, Accessories (+ the windows)
+    const RULES = { clothes: /cloth/i, shoes: /shoe/i, accessories: /accessor/i, windows: /window/i };
     const c = await tapSel('[data-act="goto"]');
     if (!c) { add('goto-list', 'FAIL', 'no Go to button'); add('goto-reach', 'SKIP', 'no Go to button'); return; }
     await sleep(800);
     const list = await ev(() => { const Q = window.__qa, s = Q.sheet('goto') || Q.anySheet(); return s ? [...s.querySelectorAll('button, a[href]')].filter(b => Q.vis(b) && !/close/i.test(b.getAttribute('aria-label') || '')).map(b => { const t = b.querySelector('.t') || b; const first = [...t.childNodes].find(n => n.nodeType === 3 && n.nodeValue.trim()); return (first ? first.nodeValue : b.textContent).replace(/\s+/g, ' ').trim(); }).filter(Boolean) : null; });
     if (!list) { add('goto-list', 'FAIL', 'Go to opened no sheet'); add('goto-reach', 'SKIP', 'no list'); return; }
     const found = {}; for (const [k, re] of Object.entries(RULES)) found[k] = list.find(t => re.test(t)) || null;
-    const missReq = ['clothes', 'shoes', 'accessories', 'newIn'].filter(k => !found[k]), missOpt = ['windows', 'services'].filter(k => !found[k]);
+    const missReq = ['clothes', 'shoes', 'accessories'].filter(k => !found[k]), missOpt = ['windows'].filter(k => !found[k]);
     details.ui.gotoList = list;
     add('goto-list', missReq.length ? 'FAIL' : missOpt.length ? 'WARN' : 'PASS', `${list.length} entries: ${list.map(t => t.replace(/^\d+\s*/, '')).join(' · ').slice(0, 170)}${missReq.length ? ' — MISSING ' + missReq.join(', ') : ''}${missOpt.length ? ' — no ' + missOpt.join(', ') : ''}`);
     const toTest = (QUICK ? ['shoes', 'accessories'] : Object.keys(RULES)).filter(k => found[k]);
@@ -657,7 +658,7 @@ async function tierSession(tier) {
     const tiles = [];
     // HUD tile: the untouched start view with the interface
     try {
-      await s.page.evaluate(() => { window.__qa.fullRes(); window.__qa.renderOn(); window.__setCam(0, 1.62, 8.4, 0, 1.45, -4); });
+      await s.page.evaluate(() => { window.__qa.fullRes(); window.__qa.renderOn(); window.__setCam(0, 1.62, 7.74, 0, 2.18, 4.4); });
       await frames(s.page, 3);
       const f = path.join(OUT, 'tiles', `${tier}-01-start-hud.jpg`);
       await s.page.screenshot({ path: f, type: 'jpeg', quality: 82, timeout: 90000 });

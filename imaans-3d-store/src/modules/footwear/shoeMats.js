@@ -1,12 +1,12 @@
-// footwear — ONE material (one shader program) for every procedural shoe, shoe box and tissue sheet.
-//   MeshStandardMaterial · map = brand atlas (uv1) · normalMap = leather pebble (uv0, metres) · vertex
+// footwear — ONE material (one shader program) for every procedural shoe.
+//   MeshStandardMaterial · map = print atlas (uv1) · normalMap = leather pebble (uv0, metres) · vertex
 //   colours · instancing + instance colour. A small patch decodes aTint = tint + 2·surf per vertex:
 //     tint → how much of the instance colour the vertex takes (linings / soles / gold keep their own),
 //     surf → roughness / metalness / normal strength (calf · patent · suede · gold · rubber · gloss · textile).
 // Merged shoe banks bake the product colour into the vertex colours and use a white instance colour;
-// boxes + floaters take theirs from instanceColor. Same program either way.
+// try-on floaters take theirs from instanceColor. Same program either way.
 import * as THREE from 'three';
-import { brandAtlas } from './atlas.js';
+import { printAtlas } from './atlas.js';
 
 // roughness, metalness, normal-map strength per surface class (see lasts.js SURF)
 const SURFS = [
@@ -36,14 +36,11 @@ function shoePatch(shader) {
     .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = vFwSurf.y;');
 }
 
-/** The shared shoe/box material + its brand atlas. */
+/** The shared shoe material + its print atlas. */
 export function shoeMaterials(ctx) {
   const { mats } = ctx;
   const leatherTex = mats.textures('fab-leather') || {};
-  // the box end label shows a mid size of the catalogue's shoe size guide (EU 36–41 → 38)
-  const guide = ((ctx.catalog && ctx.catalog.sizeGuides) || []).find(g => /shoe/i.test((g.name || '') + (g.id || '')));
-  const sizes = (guide && guide.sizes) || [];
-  const atlas = brandAtlas(ctx.kit, ctx.fonts, ctx.brand, sizes.length ? sizes[Math.floor((sizes.length - 1) / 2)] : '');
+  const atlas = printAtlas(ctx.kit);
   atlas.anisotropy = ctx.q.anisotropy;
   const m = new THREE.MeshStandardMaterial({ color: '#ffffff', vertexColors: true, roughness: 0.36, metalness: 0, map: atlas });
   if (leatherTex.normalMap) { m.normalMap = leatherTex.normalMap; m.normalScale.set(0.35, 0.35); }

@@ -85,8 +85,9 @@ for (const [W, H] of sizes) {
       if (state === 'start') await sleep(1900);
       else await sleep(1300);
       if (state === 'card') {
-        await page.evaluate(TP(`1.3,${EYE},1.3`, '0.1,1.1,-2.3')); await frames(page, 3);
-        const [x, y] = await project(page, [0.1, 1.2, -2.5]);
+        const at = (await page.evaluate(() => window.__uitest.at)).figs[1];
+        await page.evaluate(TP(at.p.join(','), at.t.join(','))); await frames(page, 3);
+        const [x, y] = await project(page, at.tap);
         await tapAt(page, cdp, mobile, x, y); await frames(page, 2); await sleep(900);
       } else if (state === 'product' || state === 'productbag') {
         // frame a real priced interactable from the live scene (prefers ones with colourways) and tap it
@@ -120,8 +121,9 @@ for (const [W, H] of sizes) {
         { const si = await page.evaluate(() => [...document.querySelectorAll('.me-szb')].findIndex(b => !b.classList.contains('out'))); if (si >= 0) { await click(page, cdp, mobile, `.me-szb[data-i="${si}"]`); await frames(page, 3); await sleep(300); } }
         if (state === 'productbag') { await click(page, cdp, mobile, '.me-card [data-act="add"]'); await sleep(1500); await click(page, cdp, mobile, '.me-bagbtn'); await frames(page, 3); await sleep(900); }
       } else if (state === 'swatch' || state === 'bag' || state === 'fly') {
-        await page.evaluate(TP(`0,${EYE},-7.4`, '0,1.5,-10.6')); await frames(page, 3);
-        const [x, y] = await project(page, [0, 1.5, -10.45]);
+        const at = (await page.evaluate(() => window.__uitest.at)).wall;
+        await page.evaluate(TP(at.p.join(','), at.t.join(','))); await frames(page, 3);
+        const [x, y] = await project(page, at.tap);
         await tapAt(page, cdp, mobile, x, y); await frames(page, 2); await sleep(700);
         const nsw = await page.locator('.me-swb').count();
         if (nsw > 1) { await click(page, cdp, mobile, `.me-swb[data-i="${Math.min(2, nsw - 1)}"]`); await frames(page, 4); await sleep(400); }

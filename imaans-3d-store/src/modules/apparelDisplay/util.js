@@ -1,5 +1,5 @@
-// apparelDisplay — shared helpers: merge-by-material batcher, the "figure turn" shader patch, contact
-// shadow batch, metre-UV geometry helpers.
+// apparelDisplay — shared helpers: merge-by-material batcher, the "figure turn" shader patch, metre-UV
+// geometry helpers.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -58,15 +58,6 @@ export function lathe(points, seg = 48, phiStart = 0, phiLen = Math.PI * 2) {
   }
   return g;
 }
-/** Tube along a polyline (for rails, stems, wire). */
-export function tube(points, r, radial = 8, tubular = 16, closed = false) {
-  const curve = new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p)), closed, 'centripetal');
-  const g = new THREE.TubeGeometry(curve, tubular, r, radial, closed);
-  const uv = g.attributes.uv, L = curve.getLength(), C = 2 * Math.PI * r;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getY(i) * C, uv.getX(i) * L);
-  return g;
-}
-
 /** Strip a geometry down to position/normal/uv (non-indexed ok) so everything merges. */
 export function clean(geo, keep = ['position', 'normal', 'uv']) {
   let g = geo;
@@ -168,41 +159,3 @@ export class Batch {
     return out;
   }
 }
-
-// ------------------------------------------------------------------------------------------------
-// Contact shadows: one mesh, one soft blob per quad (per-vertex alpha).
-// ------------------------------------------------------------------------------------------------
-export class Shadows {
-  constructor(kit) { this.kit = kit; this.q = []; }
-  /** Soft ellipse at (x, y, z), size w × d, rotY, opacity. */
-  add(x, y, z, w, d, opacity = 0.5, rotY = 0) { this.q.push([x, y, z, w, d, opacity, rotY]); return this; }
-  build(parent) {
-    if (!this.q.length) return null;
-    const probe = this.kit.contactShadow(1, 1, 0.5); const tex = probe.material.map; probe.geometry.dispose();
-    const n = this.q.length, pos = new Float32Array(n * 12), uv = new Float32Array(n * 8), col = new Float32Array(n * 16), idx = new Uint32Array(n * 6);
-    this.q.forEach(([x, y, z, w, d, o, r], i) => {
-      const c = Math.cos(r), s = Math.sin(r);
-      [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([a, b], k) => {
-        const lx = a * w / 2, lz = b * d / 2;
-        pos.set([x + lx * c + lz * s, y, z - lx * s + lz * c], i * 12 + k * 3);
-        uv.set([(a + 1) / 2, (b + 1) / 2], i * 8 + k * 2);
-        col.set([0, 0, 0, o], i * 16 + k * 4);
-      });
-      idx.set([i * 4, i * 4 + 2, i * 4 + 1, i * 4, i * 4 + 3, i * 4 + 2], i * 6);
-    });
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
-    g.setAttribute('color', new THREE.BufferAttribute(col, 4));
-    g.setIndex(new THREE.BufferAttribute(idx, 1));
-    g.computeBoundingSphere();
-    const m = new THREE.MeshBasicMaterial({ map: tex, color: 0xffffff, vertexColors: true, transparent: true, depthWrite: false,
-      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    m.name = 'apparelDisplay:contactShadows';
-    const mesh = new THREE.Mesh(g, m); mesh.renderOrder = 1; mesh.name = 'ad:contactShadows';
-    parent.add(mesh);
-    return mesh;
-  }
-}
-
-export { mergeGeometries, RoundedBoxGeometry };

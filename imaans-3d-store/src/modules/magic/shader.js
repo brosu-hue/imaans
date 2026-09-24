@@ -1,4 +1,4 @@
-// The ONE particle program of the magic module. Every magic draw (dust, plinth helix + glitter, bokeh,
+// The ONE particle program of the magic module. Every magic draw (dust, island vortex helix + glitter, bokeh,
 // sign shimmer, burst pool, and the instanced crowns / butterflies) uses this same source → one shader
 // program. Each system is its own THREE.Points / Mesh with its own material instance (separate
 // uniforms, same code). Motion is computed on the GPU from per-particle attributes + a time uniform.
@@ -22,7 +22,8 @@ uniform float uViewH;
 uniform float uCalm;
 uniform float uMesh;
 uniform float uBright;
-uniform vec4 uPlinth;   // plinth centre x, z, helix bottom y, helix top y
+uniform vec4 uVortex;   // vortex centre x, z, helix bottom y, helix top y (the glass island → its light panel)
+uniform vec2 uVortexR;  // helix radius at the bottom, at the top
 uniform vec4 uSweep;    // sign/back-wall shimmer: x0, x1, period (s), band width (m)
 attribute vec4 aA;
 attribute vec4 aB;
@@ -116,22 +117,22 @@ void main() {
     vRot = h.x * 0.8;
     nearFade = 0.6;
   } else if (kind < 1.5) {
-    // helix around the Spring Edit plinth: 3 strands rising into the ceiling cove
+    // helix around the glass island: 3 strands rising into the light panel above it
     float s = fract(position.y + tm * aA.z);
-    float y = mix(uPlinth.z, uPlinth.w, s);
-    float R = mix(1.68, 2.16, smoothstep(0.0, 1.0, s)) + position.z;
+    float y = mix(uVortex.z, uVortex.w, s);
+    float R = mix(uVortexR.x, uVortexR.y, smoothstep(0.0, 1.0, s)) + position.z;
     float ang = position.x + s * TAU * 1.6 + tm * 0.06;
-    p = vec3(uPlinth.x + cos(ang) * R, y + aB.x, uPlinth.y + sin(ang) * R);
+    p = vec3(uVortex.x + cos(ang) * R, y + aB.x, uVortex.y + sin(ang) * R);
     float pulse = 0.5 + 0.5 * sin((s * 5.0 - tm * 0.35) * TAU);
     float tw = 0.5 + 0.5 * sin(tm * (2.0 + 3.0 * h.y) + TAU * h.z);
     bright = smoothstep(0.0, 0.1, s) * (1.0 - smoothstep(0.82, 1.0, s)) * (0.35 + 0.65 * pulse) * (0.45 + 0.75 * tw * tw);
     shape = aB.y * smoothstep(0.5, 1.0, tw);
     vRot = 0.785 * step(0.5, h.x);
   } else if (kind < 2.5) {
-    // glitter drifting down from the cove over the plinth; flakes flash as they turn
-    float range = uPlinth.w - uPlinth.z;
+    // glitter drifting down from the light panel around the island; flakes flash as they turn
+    float range = uVortex.w - uVortex.z;
     float fall = mod(tm * aA.z + aB.x * range, range);
-    float y = uPlinth.w - fall;
+    float y = uVortex.w - fall;
     p = vec3(position.x + 0.14 * sin(tm * (0.7 + 0.4 * h.x) + TAU * h.y), y, position.z + 0.14 * cos(tm * (0.6 + 0.4 * h.z) + TAU * h.x));
     float flash = pow(abs(sin(tm * (1.6 + 2.4 * h.z) + TAU * h.y)), 10.0);
     float u = fall / range;
@@ -315,7 +316,8 @@ export function createUniforms(THREE) {
     uCalm: { value: 0 },
     uBright: { value: 1 },
     uHalo: { value: 0 },
-    uPlinth: { value: new THREE.Vector4(0, -2, 0.4, 4.3) },
+    uVortex: { value: new THREE.Vector4(0.2, 0, 0.9, 2.9) },
+    uVortexR: { value: new THREE.Vector2(0.95, 1.2) },
     uSweep: { value: new THREE.Vector4(-3, 3, 12, 0.35) },
   };
 }

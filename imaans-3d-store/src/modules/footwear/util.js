@@ -36,26 +36,6 @@ export function rbox(w, h, d, r = 0.006, seg = 2) {
   return uvBox(new RoundedBoxGeometry(w, h, d, seg, Math.min(r, w / 2 - 1e-4, h / 2 - 1e-4, d / 2 - 1e-4)));
 }
 
-/** Cylinder with metre UVs along its axis (y). */
-export function cyl(rTop, rBot, h, seg = 24, open = false) {
-  const g = new THREE.CylinderGeometry(rTop, rBot, h, seg, 1, open);
-  const uv = g.attributes.uv, p = g.attributes.position;
-  const R = Math.max(rTop, rBot);
-  for (let i = 0; i < uv.count; i++) {
-    const y = p.getY(i);
-    if (Math.abs(g.attributes.normal.getY(i)) > 0.9) uv.setXY(i, p.getX(i), p.getZ(i));
-    else uv.setXY(i, uv.getX(i) * Math.PI * 2 * R, y);
-  }
-  return g;
-}
-
-/** Tube along a list of THREE.Vector3 points. */
-export function tube(points, r, seg = 48, radial = 8, closed = false) {
-  const curve = new THREE.CatmullRomCurve3(points, closed, 'centripetal');
-  const g = new THREE.TubeGeometry(curve, seg, r, radial, closed);
-  return g;
-}
-
 /**
  * Collects geometries per material key, bakes transforms, normalises attributes and merges.
  * Attributes kept: position, normal, uv (+ color when the key asks for vertex colours, + uv1 from fn).

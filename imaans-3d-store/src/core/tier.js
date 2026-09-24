@@ -16,7 +16,9 @@ export const TIERS = {
     name: 'mid', maxDpr: 1.6, minDpr: 0.85, antialias: true,
     shadows: true, shadowType: 'pcf', shadowMapSize: 1024, maxShadowLights: 1, maxLights: 6,
     bloom: true, bloomScale: 0.35, ao: false,
-    particles: 0.6, density: 0.85, texMax: 1024, anisotropy: 4, envSize: 128,
+    // envSize 256: the partition mirror reflects this capture (box-projected) — 128 was blocky from close up.
+    // ≈ +7 MB of GPU memory (half-float cube + PMREM) over 128; low (iPhone 8 class) stays at 128.
+    particles: 0.6, density: 0.85, texMax: 1024, anisotropy: 4, envSize: 256,
   },
   low: {
     name: 'low', maxDpr: 1.25, minDpr: 0.75, antialias: true,

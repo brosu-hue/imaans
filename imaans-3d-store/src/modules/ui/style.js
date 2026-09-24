@@ -252,7 +252,7 @@ export const CSS = /* css */`
 .me-go svg{width:16px;height:16px;color:var(--ivory3)}
 .me-dept.is-here>.me-go .t::after{content:'You are here';display:block;margin-top:2px;font-family:var(--sans);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--gold);opacity:.85}
 .me-stops{display:flex;flex-wrap:wrap;padding-left:44px;margin-top:-2px}
-.me-stop{height:44px;padding:0 14px;margin:0 6px 6px 0;border-radius:999px;border:1px solid var(--line)!important;font-size:12px;letter-spacing:.08em;color:var(--ivory2);white-space:nowrap;transition:background-color .2s,border-color .2s}
+.me-stop{min-height:44px;max-width:100%;padding:6px 14px;margin:0 6px 6px 0;border-radius:22px;border:1px solid var(--line)!important;font-size:12px;letter-spacing:.08em;line-height:1.3;text-align:left;color:var(--ivory2);transition:background-color .2s,border-color .2s}
 .me-stop.is-here{border-color:var(--gline)!important;color:var(--gold-hi)}
 .me-stop:active{background:rgba(255,255,255,.07)}
 

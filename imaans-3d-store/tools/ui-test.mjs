@@ -20,6 +20,7 @@ const frames = (page, n = 2) => page.evaluate((n) => new Promise(r => { let k = 
 const simWait = (page, sec, maxMs = Number(args.maxwait || 90000)) => page.evaluate(([sec, maxMs]) => new Promise(r => { const t0 = window.__ctx.time, w0 = performance.now(); const f = () => (window.__ctx.time - t0 >= sec || performance.now() - w0 > maxMs ? r(window.__ctx.time - t0) : requestAnimationFrame(f)); f(); }), [sec, maxMs]);
 const pose = (page) => page.evaluate(() => { const u = window.__ui, c = window.__ctx.camera; return { x: c.position.x, y: c.position.y, z: c.position.z, yaw: u.controls.pose.yaw, pitch: u.controls.pose.pitch, t: window.__ctx.time }; });
 const TP = (page, p, t) => page.evaluate(([p, t]) => { const c = window.__ctx.camera; c.position.set(...p); c.lookAt(...t); window.__ui.controls.resync(); }, [p, t]).then(() => frames(page, 3));
+const AT = (page) => page.evaluate(() => window.__uitest.at);   // _uitest stand-in viewpoints {p, t, tap}
 const project = (page, p) => page.evaluate((p) => { const c = window.__ctx; c.camera.updateMatrixWorld(); const v = new c.THREE.Vector3(...p).project(c.camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight]; }, p);
 const nowS = () => Date.now() / 1000;
 const touch = (cdp, type, pts, ts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y, id]) => ({ x, y, id: id ?? 1 })), timestamp: ts ?? nowS() });
@@ -121,7 +122,7 @@ await test('touch-look+pitch-clamp+hint', () => withPage({ W: 390, H: 844 }, asy
 
 await test('joystick-walk', () => withPage({ W: 390, H: 844 }, async ({ page, cdp }) => {
   await sleep(1200);
-  await TP(page, [0, EYE, 8.4], [0, EYE, -4]);
+  await TP(page, [0, EYE, 7.74], [0, EYE, -4]);
   const a = await pose(page);
   const [x, y] = [90, 700];
   let T = nowS();
@@ -147,7 +148,7 @@ await test('joystick-walk', () => withPage({ W: 390, H: 844 }, async ({ page, cd
 
 await test('joystick+look-multitouch', () => withPage({ W: 390, H: 844 }, async ({ page, cdp }) => {
   await sleep(1200);
-  await TP(page, [0, EYE, 8.4], [0, EYE, -4]);
+  await TP(page, [0, EYE, 7.74], [0, EYE, -4]);
   const a = await pose(page);
   let T = nowS();
   await touch(cdp, 'touchStart', [[90, 700, 1]], T);
@@ -163,27 +164,31 @@ await test('joystick+look-multitouch', () => withPage({ W: 390, H: 844 }, async 
 
 await test('collision-box+circle', () => withPage({ W: 390, H: 844 }, async ({ page, cdp }) => {
   await sleep(1200);
-  // knit table box collider at (-2.1, 4.8) 1.9 × 0.95 → the eye must stop at z ≥ 4.8 + 0.475 + R
-  await TP(page, [-2.1, EYE, 7.2], [-2.1, EYE, 0]);
+  // the bench box collider (layout ZONES.bench) → walking in from the door, the eye must stop at z ≥ bench front + R
+  const { bench: B, glassIsland: I } = await page.evaluate(() => window.__ctx.layout.ZONES);
+  const benchFront = B.z[1], islandR = 0.75;   // _uitest stands the island in as a circle of r 0.75
+  await TP(page, [B.cx, EYE, 3.6], [B.cx, EYE, -5]);
   await page.keyboard.down('KeyW'); await simWait(page, 3.5); await page.keyboard.up('KeyW');
   const b = await pose(page);
-  ok(b.z >= 4.8 + 0.475 + R - 0.02, 'walked into the table: z=' + b.z.toFixed(3));
-  ok(b.z < 5.7, 'did not reach the table: z=' + b.z.toFixed(3));
-  // plinth circle (0,-2) r 1.5 via the joystick, straight on
-  await TP(page, [0, EYE, 2.2], [0, EYE, -6]);
+  ok(b.z >= benchFront + R - 0.02, 'walked into the bench: z=' + b.z.toFixed(3));
+  ok(b.z < benchFront + R + 0.5, 'did not reach the bench: z=' + b.z.toFixed(3));
+  // the island circle via the joystick, straight on from the partition side
+  await TP(page, [I.cx, EYE, -1.85], [I.cx, EYE, 6]);
   let T = nowS(); await touch(cdp, 'touchStart', [[90, 700]], T);
   for (let i = 1; i <= 6; i++) { T += 0.016; await touch(cdp, 'touchMove', [[90, 700 - i * 10]], T); }
   await simWait(page, 3.0);
   await touch(cdp, 'touchEnd', [], T + 0.05);
   const c = await pose(page);
-  const d = Math.hypot(c.x - 0, c.z + 2);
-  ok(d >= 1.5 + R - 0.02, 'walked into the plinth: d=' + d.toFixed(3));
-  // walls: keep walking toward the storefront
-  await TP(page, [3.5, EYE, 9.5], [3.5, EYE, 20]);
+  const d = Math.hypot(c.x - I.cx, c.z - I.cz);
+  ok(d >= islandR + R - 0.02, 'walked into the island: d=' + d.toFixed(3));
+  ok(d < islandR + R + 0.5, 'did not reach the island: d=' + d.toFixed(3));
+  // walls: walk from inside toward the left shop window (glass inner face at z 4.34)
+  await TP(page, [-1.4, EYE, 2.8], [-1.4, EYE, 20]);
   await page.keyboard.down('KeyW'); await simWait(page, 2.5); await page.keyboard.up('KeyW');
   const w = await pose(page);
-  ok(w.z <= 11 - 0.35 - R + 0.01, 'walked through the storefront: z=' + w.z.toFixed(3));
-  return { tableStopZ: +b.z.toFixed(3), plinthDist: +d.toFixed(3), wallZ: +w.z.toFixed(3) };
+  ok(w.z <= 4.34 - R + 0.01, 'walked through the shop window: z=' + w.z.toFixed(3));
+  ok(w.z > 3.8, 'did not reach the shop window: z=' + w.z.toFixed(3));
+  return { benchStopZ: +b.z.toFixed(3), islandDist: +d.toFixed(3), windowZ: +w.z.toFixed(3) };
 }));
 
 const bagState = (page) => page.evaluate(() => ({ n: document.querySelector('.me-badge').textContent, label: document.querySelector('.me-bagbtn').getAttribute('aria-label'),
@@ -193,16 +198,17 @@ await test('tap-card-swatch-bag', () => withPage({ W: 390, H: 844 }, async ({ pa
   await sleep(1200);
   await page.evaluate(() => { window.__ev = []; for (const k of ['imaans:add-to-bag', 'imaans:view-product']) window.addEventListener(k, (e) => window.__ev.push([k, e.detail])); });
   // an OLDER info object (numeric price, string sizes, no productId) still renders — in Rand, no €
-  await TP(page, [1.3, EYE, 1.3], [0.1, 1.1, -2.3]);
+  const at = await AT(page);
+  await TP(page, at.figs[1].p, at.figs[1].t);
   const b0 = await page.evaluate(() => window.__uitest.bursts);
-  let [x, y] = await project(page, [0.1, 1.2, -2.5]);
+  let [x, y] = await project(page, at.figs[1].tap);
   await tap(cdp, x, y); await frames(page, 2); await sleep(700);
   const c1 = await page.evaluate(() => ({ open: document.querySelector('.me-card').classList.contains('is-open'), title: document.querySelector('#me-card-title')?.textContent, price: document.querySelector('.me-price')?.textContent, bursts: window.__uitest.bursts, img: !!document.querySelector('.me-card .me-ph') }));
   ok(c1.open && c1.title === 'Ivory Slip Dress' && c1.price === 'R 420.00' && !c1.img, 'legacy card: ' + JSON.stringify(c1));
   ok(c1.bursts > b0, 'no fx.burst at the tap point');
   // a real catalogue knit: photo, price, colours (apply()), sizes (sold out disabled), short description
-  await TP(page, [-1.3, EYE, 6.4], [-2.4, 0.9, 4.8]);
-  [x, y] = await project(page, [-2.4, 0.92, 4.8]);
+  await TP(page, at.knit.p, at.knit.t);
+  [x, y] = await project(page, at.knit.tap);
   await tap(cdp, x, y); await frames(page, 2); await sleep(700);
   const exp = await page.evaluate(() => { const c = window.__ctx.catalog, p = c.get(window.__uitest.cards.knit); return { id: p.id, name: p.name, price: c.formatPrice(c.priceOf(p)), short: p.short, colours: p.colours.map(x => x.label), sizes: p.sizes.map(z => [z.id, z.label, z.inStock]), img: c.imageUrl(p, window.__ctx.assets.base) }; });
   const c2 = await page.evaluate(() => ({ title: document.querySelector('#me-card-title')?.textContent, taps: window.__uitest.taps, sw: document.querySelectorAll('.me-swb').length, price: document.querySelector('.me-price span')?.textContent,
@@ -271,8 +277,9 @@ await test('tap-card-swatch-bag', () => withPage({ W: 390, H: 844 }, async ({ pa
 await test('look-card+addToBag-api', () => withPage({ W: 390, H: 844 }, async ({ page, cdp }) => {
   await sleep(1200);
   // "complete the look": the pieces are listed; tapping one opens its own card; the action adds all three
-  await TP(page, [0.1, EYE, 1.6], [0.1, 1.1, -2]);
-  let [x, y] = await project(page, [0.8, 1.2, -1.6]);
+  const at = await AT(page);
+  await TP(page, at.figs[2].p, at.figs[2].t);
+  let [x, y] = await project(page, at.figs[2].tap);
   await tap(cdp, x, y); await frames(page, 2); await sleep(700);
   const lk = await page.evaluate(() => ({ items: [...document.querySelectorAll('.me-look .me-lk-i b')].map(b => b.textContent), pri: document.querySelector('.me-card .me-cta.pri')?.textContent, add: !!document.querySelector('.me-card [data-act="add"]'),
     want: window.__uitest.cards.look.map(id => window.__ctx.catalog.get(id).name) }));
@@ -313,8 +320,9 @@ await test('website-bridge', () => withPage({ W: 390, H: 844, beforeReady: async
   });
 } }, async ({ page, cdp }) => {
   await sleep(1200);
-  await TP(page, [-1.3, EYE, 6.4], [-2.4, 0.9, 4.8]);
-  const [x, y] = await project(page, [-2.4, 0.92, 4.8]);
+  const at = await AT(page);
+  await TP(page, at.knit.p, at.knit.t);
+  const [x, y] = await project(page, at.knit.tap);
   await tap(cdp, x, y); await frames(page, 2); await sleep(700);
   const site = await page.evaluate(() => { const a = document.querySelector('.me-card a.me-site'); return a && a.getAttribute('href'); });
   const want = await page.evaluate(() => window.__ctx.catalog.siteUrl(window.__ctx.catalog.get(window.__uitest.cards.knit)));
@@ -375,8 +383,9 @@ await test('info-pages', () => withPage({ W: 390, H: 844 }, async ({ page, cdp }
 
 await test('action-button', () => withPage({ W: 390, H: 844 }, async ({ page, cdp }) => {
   await sleep(1200);
-  await TP(page, [1.2, EYE, 6.8], [2.3, 0.7, 4.8]);
-  const [x, y] = await project(page, [2.3, 0.8, 4.8]);
+  const at = await AT(page);
+  await TP(page, at.acc.p, at.acc.t);
+  const [x, y] = await project(page, at.acc.tap);
   await tap(cdp, x, y); await frames(page, 2); await sleep(600);
   const n = await page.evaluate(() => ({ pri: document.querySelector('.me-card .me-cta.pri')?.textContent, add: !!document.querySelector('[data-act="add"]') }));
   ok(n.pri && /sparkle/.test(n.pri) && !n.add, 'no-price card should promote its first action and hide Add to bag: ' + JSON.stringify(n));
@@ -388,7 +397,7 @@ await test('action-button', () => withPage({ W: 390, H: 844 }, async ({ page, cd
 
 await test('double-tap-glide', () => withPage({ W: 390, H: 844 }, async ({ page, cdp }) => {
   await sleep(1200);
-  await TP(page, [0, EYE, 8.4], [0, 0.6, 4.5]);
+  await TP(page, [0, EYE, 7.74], [0, 0.6, 4.5]);
   const [x, y] = await project(page, [0, 0, 6.2]);
   const T = nowS();
   await touch(cdp, 'touchStart', [[x, y]], T); await touch(cdp, 'touchEnd', [], T + 0.05);
@@ -435,7 +444,7 @@ await test('goto-sneakers', () => withPage({ W: 390, H: 844 }, async ({ page, cd
   const items = await page.evaluate(() => [...document.querySelectorAll('.me-go .t')].map(e => e.firstChild.textContent));
   // every department that has a stop is listed (the dev stand-ins register no accessories stop; the real fixtures module does)
   const want = await page.evaluate(() => ['clothes', 'shoes'].concat(window.__ctx.hotspots.list.some(h => h.id === 'accessories') ? ['accessories'] : [])
-    .map(id => window.__ctx.brand.departments.find(d => d.id === id).name).concat([window.__ctx.layout.DEPARTMENTS.newIn.name]));
+    .map(id => window.__ctx.brand.departments.find(d => d.id === id).name));
   ok(want.every(w => items.includes(w)) && items.includes('Checkout'), 'go-to departments ' + JSON.stringify(items));
   const i = await page.evaluate(() => { const b = [...document.querySelectorAll('.me-go')].find(b => /^Shoes/.test(b.querySelector('.t').textContent)); return b && b.getAttribute('data-i'); });
   await clickSel(page, cdp, `.me-go[data-i="${i}"]`);
@@ -444,16 +453,26 @@ await test('goto-sneakers', () => withPage({ W: 390, H: 844 }, async ({ page, cd
   await simWait(page, 11);
   const b = await pose(page);
   ok(kind === 'goto', 'goto not started');
-  ok(Math.hypot(b.x - 0, b.z + 6.2) < 0.35, `arrived at ${b.x.toFixed(2)}, ${b.z.toFixed(2)}`);
-  ok(Math.abs(b.yaw) < 0.08, 'facing ' + b.yaw.toFixed(3));
-  const plinthGap = await page.evaluate(() => Math.min(...window.__trace.map(([x, z]) => Math.hypot(x, z + 2))) - 1.5);
-  ok(plinthGap >= 0.25, 'path grazed the plinth: ' + plinthGap.toFixed(3));
-  return { items: items.length, end: [+b.x.toFixed(2), +b.z.toFixed(2)], plinthGap: +plinthGap.toFixed(2) };
+  const st = await page.evaluate(() => { const h = window.__ctx.hotspots.list.find(h => h.id === 'shoe-wall-1'); const d = new window.__ctx.THREE.Vector3(); window.__ctx.camera.getWorldDirection(d);
+    return { pos: h.pos, look: h.look, dir: Math.atan2(d.x, -d.z) }; });
+  ok(Math.hypot(b.x - st.pos[0], b.z - st.pos[2]) < 0.35, `arrived at ${b.x.toFixed(2)}, ${b.z.toFixed(2)} (stop ${st.pos[0]}, ${st.pos[2]})`);
+  const aim = Math.atan2(st.look[0] - st.pos[0], -(st.look[2] - st.pos[2]));
+  const turn = Math.abs(Math.atan2(Math.sin(st.dir - aim), Math.cos(st.dir - aim)));
+  ok(turn < 0.08, 'facing off by ' + turn.toFixed(3));
+  const gap = await page.evaluate(() => {
+    const c = window.__ctx.colliders; let worst = 1e9;
+    for (const [x, z] of window.__trace) {
+      for (const k of c.circles) worst = Math.min(worst, Math.hypot(x - k.x, z - k.z) - k.r);
+      for (const b of c.boxes) { const dx = x - b.cx, dz = z - b.cz; const lx = dx * b.cos - dz * b.sin, lz = dx * b.sin + dz * b.cos; worst = Math.min(worst, Math.hypot(Math.max(0, Math.abs(lx) - b.hw), Math.max(0, Math.abs(lz) - b.hd))); }
+    }
+    return worst; });
+  ok(gap >= R - 0.03, 'path grazed a collider: ' + gap.toFixed(3));
+  return { items: items.length, end: [+b.x.toFixed(2), +b.z.toFixed(2)], clearance: +gap.toFixed(2) };
 }));
 
 await test('desktop-keys-mouse-wheel', () => withPage({ W: 1440, H: 900 }, async ({ page, cdp }) => {
   await sleep(1200);
-  await TP(page, [0, EYE, 8.4], [0, EYE, -4]);
+  await TP(page, [0, EYE, 7.74], [0, EYE, -4]);
   const a = await pose(page);
   await page.keyboard.down('KeyW'); const w1 = await simWait(page, 1.5); await page.keyboard.up('KeyW');
   await simWait(page, 0.6);
@@ -474,14 +493,15 @@ await test('desktop-keys-mouse-wheel', () => withPage({ W: 1440, H: 900 }, async
   await frames(page, 2);
   const e = await pose(page); ok(e.yaw > d.yaw + 0.2, 'mouse drag look ' + (e.yaw - d.yaw).toFixed(2));
   // wheel = small step
-  await TP(page, [0, EYE, 8.4], [0, EYE, -4]);
+  await TP(page, [0, EYE, 7.74], [0, EYE, -4]);
   const f0 = await pose(page);
   await page.mouse.move(720, 450); await page.mouse.wheel(0, -100); await simWait(page, 0.8);
   const f1 = await pose(page);
   ok(f0.z - f1.z > 0.2 && f0.z - f1.z < 0.6, 'wheel step ' + (f0.z - f1.z).toFixed(2));
   // click → side card on the right
-  await TP(page, [1.3, EYE, 1.3], [0.1, 1.1, -2.3]);
-  const [x, y] = await project(page, [0.1, 1.2, -2.5]);
+  const at = await AT(page);
+  await TP(page, at.figs[1].p, at.figs[1].t);
+  const [x, y] = await project(page, at.figs[1].tap);
   await mouseTap(cdp, x, y); await frames(page, 2); await sleep(700);
   const card = await page.evaluate(() => { const r = document.querySelector('.me-card').getBoundingClientRect(); return { open: document.querySelector('.me-card').classList.contains('is-open'), left: r.left, right: r.right, w: r.width, barVisible: getComputedStyle(document.querySelector('.me-bar')).opacity }; });
   ok(card.open && card.left > 900 && card.right <= 1440, 'desktop side card ' + JSON.stringify(card));
@@ -536,8 +556,9 @@ await test('layout-sizes', async () => {
         } };
       const check0 = check; const checkS = async () => { await settle(); return check0(); };
       const b1 = await checkS();
-      await TP(page, [0, EYE, -7.4], [0, 1.5, -10.6]);
-      const [x, y] = await project(page, [0, 1.5, -10.45]);
+      const at = await AT(page);
+      await TP(page, at.wall.p, at.wall.t);
+      const [x, y] = await project(page, at.wall.tap);
       if (mobile) await tap(cdp, x, y); else await mouseTap(cdp, x, y);
       await frames(page, 2); await sleep(700);
       const b2 = await checkS();
@@ -578,7 +599,7 @@ await test('rotate-keeps-pose', () => withPage({ W: 390, H: 844 }, async ({ page
 
 await test('reduced-motion-no-bob', () => withPage({ W: 390, H: 844, reducedMotion: true }, async ({ page }) => {
   await sleep(1200);
-  await TP(page, [0, EYE, 8.4], [0, EYE, -4]);
+  await TP(page, [0, EYE, 7.74], [0, EYE, -4]);
   await page.keyboard.down('KeyW');
   const ys = [];
   for (let i = 0; i < 8; i++) { await simWait(page, 0.12); ys.push((await pose(page)).y); }
@@ -590,7 +611,7 @@ await test('reduced-motion-no-bob', () => withPage({ W: 390, H: 844, reducedMoti
 
 await test('head-bob-subtle', () => withPage({ W: 390, H: 844 }, async ({ page }) => {
   await sleep(1200);
-  await TP(page, [0, EYE, 8.4], [0, EYE, -4]);
+  await TP(page, [0, EYE, 7.74], [0, EYE, -4]);
   await page.keyboard.down('KeyW'); await simWait(page, 0.8);
   const ys = [];
   for (let i = 0; i < 14; i++) { await simWait(page, 0.07); ys.push((await pose(page)).y); }

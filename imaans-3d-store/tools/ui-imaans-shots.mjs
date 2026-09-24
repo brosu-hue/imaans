@@ -63,14 +63,12 @@ async function layoutCheck(page) {
     return bad;
   });
 }
-/** Frame the _uitest plinth instance i (0 sale, 1 legacy, 2 look) or the knit stack, then tap it. */
+/** Frame the _uitest island figure i (0 sale, 1 legacy, 2 look) or the knit stack, then tap it (viewpoints from window.__uitest.at). */
 async function openCard(page, cdp, mobile, which) {
-  if (which === 'knit') { await TP(page, [-1.3, EYE, 6.4], [-2.4, 0.9, 4.8]); const [x, y] = await project(page, [-2.4, 0.92, 4.8]); await tapAt(cdp, mobile, x, y); }
-  else {
-    await TP(page, [0.1, EYE, 1.6], [0.1, 1.1, -2]);
-    const at = [[-0.7, 1.2, -1.7], [0.1, 1.2, -2.5], [0.8, 1.2, -1.6]][which];
-    const [x, y] = await project(page, at); await tapAt(cdp, mobile, x, y);
-  }
+  const all = await page.evaluate(() => window.__uitest.at);
+  const at = which === 'knit' ? all.knit : all.figs[which];
+  await TP(page, at.p, at.t);
+  const [x, y] = await project(page, at.tap); await tapAt(cdp, mobile, x, y);
   await frames(page, 2); await sleep(900);
 }
 

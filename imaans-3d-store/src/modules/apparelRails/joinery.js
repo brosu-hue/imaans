@@ -1,5 +1,5 @@
-// Static fixture geometry for apparelRails: a tiny merge-by-material batcher plus the parts the wall bays
-// and floor rails are made of (fluted pilasters, bevelled boards, brass tubes, brackets, podiums, props).
+// Static fixture geometry for apparelRails: a tiny merge-by-material batcher plus the parts the bays are made
+// of (bevelled boards, rail tubes, flanges, finials).
 // Every generator returns geometry in METRES with metre UVs (library materials assume them).
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
@@ -83,80 +83,3 @@ export function ball(r, seg = 8) { return new THREE.SphereGeometry(r, seg, Math.
 
 /** Short disc (flange) with its axis along +y. */
 export function disc(r, t, seg = 16) { const g = new THREE.CylinderGeometry(r, r, t, seg); return g; }
-
-/**
- * Fluted pilaster profile extruded vertically. Footprint: depth `d` out from the wall (−x → +x in local
- * space, wall at x = 0), width `w` along z, `n` concave flutes on the front face. Origin: wall, floor, centre.
- */
-export function flutedPilaster(w, d, h, n = 5) {
-  const s = new THREE.Shape();
-  const hw = w / 2, ch = 0.008;
-  const fl = (w - 2 * 0.022) / n, fr = fl * 0.36;
-  s.moveTo(0, -hw);
-  s.lineTo(d - ch, -hw); s.lineTo(d, -hw + ch);
-  let z = -hw + 0.022;
-  s.lineTo(d, z);
-  for (let i = 0; i < n; i++) {
-    const zc = z + fl / 2;
-    s.lineTo(d, zc - fr);
-    const segs = 5;
-    for (let k = 1; k < segs; k++) { const a = Math.PI * k / segs; s.lineTo(d - Math.sin(a) * fr * 0.9, zc - fr * Math.cos(a)); }
-    s.lineTo(d, zc + fr);
-    z += fl;
-    s.lineTo(d, z);
-  }
-  s.lineTo(d, hw - ch); s.lineTo(d - ch, hw); s.lineTo(0, hw); s.lineTo(0, -hw);
-  const g = new THREE.ExtrudeGeometry(s, { depth: h, bevelEnabled: false, curveSegments: 1 });
-  // shape (x, y) = (out from wall, along wall); extrusion +z → +y (a proper rotation, keeps the winding)
-  g.rotateX(-Math.PI / 2);
-  return g;
-}
-
-/** Stepped moulding bar along +z (length L) with a simple crown profile; origin at wall/bottom/start. */
-export function crownBeam(L, h, d) {
-  const s = new THREE.Shape();
-  s.moveTo(0, 0); s.lineTo(d - 0.01, 0); s.lineTo(d, 0.012); s.lineTo(d, h - 0.03);
-  s.lineTo(d + 0.012, h - 0.022); s.lineTo(d + 0.016, h - 0.008); s.lineTo(d + 0.012, h); s.lineTo(0, h); s.lineTo(0, 0);
-  const g = new THREE.ExtrudeGeometry(s, { depth: L, bevelEnabled: false, curveSegments: 1 });
-  return g;
-}
-
-// ------------------------------------------------------------------------------------------------
-// Shelf props
-// ------------------------------------------------------------------------------------------------
-/** Hat box with a slightly larger lid. Origin: bottom centre. Unit size (r = 1, h = 1) → scale per instance. */
-export function hatBox() {
-  const pts = [[0, 0], [0.97, 0], [1, 0.02], [1, 0.78], [1.035, 0.78], [1.04, 0.8], [1.04, 0.985], [1.02, 1], [0, 1]].map(([r, y]) => new THREE.Vector2(r, y));
-  const g = new THREE.LatheGeometry(pts, 16);
-  return g;
-}
-
-/** Structured handbag: trapezoid body + flap + top handle. Origin bottom centre, ~0.3 × 0.22 × 0.13 m. */
-export function handbag() {
-  const body = new RoundedBoxGeometry(0.3, 0.2, 0.12, 2, 0.03);
-  const p = body.attributes.position;
-  for (let i = 0; i < p.count; i++) { const y = p.getY(i); const k = 1 - 0.14 * (y + 0.1) / 0.2; p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * (1 - 0.08 * (y + 0.1) / 0.2)); }
-  body.translate(0, 0.1, 0);
-  const flap = new RoundedBoxGeometry(0.262, 0.09, 0.012, 1, 0.005); flap.translate(0, 0.16, 0.058);
-  const curve = new THREE.CatmullRomCurve3([[-0.075, 0.195, 0], [-0.06, 0.27, 0], [0, 0.3, 0], [0.06, 0.27, 0], [0.075, 0.195, 0]].map(v => new THREE.Vector3(...v)));
-  const handle = new THREE.TubeGeometry(curve, 10, 0.008, 5, false);
-  const parts = [body, flap, handle].map(g => { const n = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(n.attributes)) if (!['position', 'normal', 'uv'].includes(k)) n.deleteAttribute(k); return n; });
-  const g = mergeGeometries(parts, false);
-  boxUVInPlace(g);
-  return g;
-}
-
-/** Tote: open-top soft box + two strap loops. */
-export function tote() {
-  const body = new RoundedBoxGeometry(0.34, 0.3, 0.11, 2, 0.02);
-  body.translate(0, 0.15, 0);
-  const parts = [body];
-  for (const sd of [1, -1]) {
-    const c = new THREE.CatmullRomCurve3([[-0.07, 0.29, sd * 0.05], [-0.05, 0.42, sd * 0.045], [0.05, 0.42, sd * 0.045], [0.07, 0.29, sd * 0.05]].map(v => new THREE.Vector3(...v)));
-    parts.push(new THREE.TubeGeometry(c, 8, 0.006, 4, false));
-  }
-  const ps = parts.map(g => { const n = g.index ? g.toNonIndexed() : g; for (const k of Object.keys(n.attributes)) if (!['position', 'normal', 'uv'].includes(k)) n.deleteAttribute(k); return n; });
-  const g = mergeGeometries(ps, false);
-  boxUVInPlace(g);
-  return g;
-}

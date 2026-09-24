@@ -39,7 +39,7 @@ const dpr = Number(args.dpr || 1.5);
 const tier = args.tier || 'mid';
 const outDir = path.resolve(ROOT, args.out || 'shots/tmp');
 fs.mkdirSync(outDir, { recursive: true });
-const cams = String(args.cams || 'start:0,1.62,8.4,0,1.45,-4').split(';').filter(Boolean).map(s => {
+const cams = String(args.cams || 'start:0,1.62,7.74,0,2.18,4.4').split(';').filter(Boolean).map(s => {
   const [name, v] = s.split(':'); return { name, v: v.split(',').map(Number) };
 });
 

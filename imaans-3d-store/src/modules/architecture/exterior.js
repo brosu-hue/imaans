@@ -1,7 +1,11 @@
-// Exterior: an evening street in Woodstock, Cape Town, seen through the storefront.
-//  • far plane (z = 58): blue-hour sky, Devil's Peak and the Table (with a wisp of its "tablecloth"),
+// Exterior: an evening street in Woodstock, Cape Town. The visit starts OUT HERE on the pavement.
+//  • our building's street face (z = 4.465): the upper storey above the fascia, the two neighbouring shops
+//    and the pier ends, one painted plane with a hole for the storefront (the fascia + logo are real
+//    geometry, storefront.js / signage.js);
+//  • the pavement in front of the shop (z 4.46 … 9.2): 450 mm pavers, warm spill from our windows;
+//  • far plane (z = 53): blue-hour sky, Devil's Peak and the Table (with a wisp of its "tablecloth"),
 //    Lion's Head at the edge, city lights on the lower slopes — far enough to barely parallax;
-//  • the opposite side of the street (z = 24.5): Victorian single/double-storey shopfronts in faded
+//  • the opposite side of the street (z = 19.5): Victorian single/double-storey shopfronts in faded
 //    pastel paint with cast-iron verandas ("broekie lace"), parapets and gables, lit and shuttered
 //    shops, a protea mural. The roofline is real geometry so the mountain shows above it;
 //  • the street: wet asphalt with SA road markings (yellow edge lines), pavements, kerbs;
@@ -10,10 +14,12 @@
 import * as THREE from 'three';
 import { mat4 } from './util.js';
 
-const FAR = { z: 58, x0: -50, x1: 50, y0: -2, y1: 48 };
-const FAC = { z: 24.5, x0: -40, x1: 40, y0: -0.6, y1: 9.4 };
-const GROUND = { z0: 11.02, z1: 24.5 };
-const KERB_FAR = 20.8, VERANDA_Z = 21.25, LAMPS = [[-5.8, 13.55], [9.4, 13.55]];
+const FAR = { z: 53, x0: -50, x1: 50, y0: -2, y1: 48 };
+const FAC = { z: 19.5, x0: -40, x1: 40, y0: -0.6, y1: 9.4 };
+const PAVE = { z0: 4.46, z1: 9.2, x0: -12, x1: 12 };             // our pavement (kerb at z1)
+const GROUND = { z0: PAVE.z1, z1: FAC.z };                        // kerb, road, far kerb + pavement
+const ROAD0 = 9.36, ROAD1 = 15.64, KERB_FAR = 15.8, VERANDA_Z = 16.25, LAMPS = [[-5.4, 8.55], [5.8, 8.55]];
+const NEAR = { z: 4.465, x0: -12, x1: 12, y0: 0, y1: 9, hole: [-2.45, 2.45, 2.6] };   // our building's street face
 
 const PAINT = [[127, 174, 156], [205, 146, 146], [206, 170, 92], [128, 160, 196], [220, 208, 184], [186, 106, 76], [156, 128, 178], [232, 200, 124], [104, 150, 140]];
 const SHOP_LIGHT = { cafe: [255, 186, 112], boutique: [255, 214, 170], gallery: [244, 240, 255], barber: [220, 236, 255], deli: [255, 200, 130], studio: [255, 224, 190], closed: [60, 58, 60] };
@@ -184,42 +190,114 @@ function paintFacade(g, W, H, plan, rng) {
 
 function paintGround(g, W, H, plan) {
   const sx = W / (FAC.x1 - FAC.x0), sz = H / (GROUND.z1 - GROUND.z0);
-  const X = x => (x - FAC.x0) * sx, Zp = z => (z - GROUND.z0) * sz; // near edge (the glass) at the canvas top
+  const X = x => (x - FAC.x0) * sx, Zp = z => (z - GROUND.z0) * sz; // near edge (our kerb) at the canvas top
   g.fillStyle = '#15171e'; g.fillRect(0, 0, W, H);
   g.globalCompositeOperation = 'lighter';
   for (const b of plan) { // wet reflections of the lit shops
     if (b.kind === 'closed') continue; const L = SHOP_LIGHT[b.kind];
     const cx = X((b.x0 + b.x1) / 2), w = (b.x1 - b.x0) * sx * 0.55;
-    const grd = g.createLinearGradient(0, Zp(20.7), 0, Zp(14.3));
+    const grd = g.createLinearGradient(0, Zp(ROAD1 - 0.2), 0, Zp(ROAD0));
     grd.addColorStop(0, `rgba(${L[0]},${L[1]},${L[2]},0.3)`); grd.addColorStop(0.5, `rgba(${L[0]},${L[1]},${L[2]},0.08)`); grd.addColorStop(1, `rgba(${L[0]},${L[1]},${L[2]},0)`);
-    g.fillStyle = grd; g.fillRect(cx - w / 2, Zp(20.7), w, Zp(14.3) - Zp(20.7));
+    g.fillStyle = grd; g.fillRect(cx - w / 2, Zp(ROAD1 - 0.2), w, Zp(ROAD0) - Zp(ROAD1 - 0.2));
   }
-  for (const [lx] of LAMPS) { const cx = X(lx); const grd = g.createLinearGradient(0, Zp(19), 0, Zp(14.3)); grd.addColorStop(0, 'rgba(255,196,130,0)'); grd.addColorStop(0.7, 'rgba(255,196,130,0.18)'); grd.addColorStop(1, 'rgba(255,196,130,0.05)'); g.fillStyle = grd; g.fillRect(cx - 12, Zp(19), 24, Zp(14.3) - Zp(19)); }
+  for (const [lx] of LAMPS) { const cx = X(lx); const grd = g.createLinearGradient(0, Zp(ROAD0 + 4.7), 0, Zp(ROAD0)); grd.addColorStop(0, 'rgba(255,196,130,0)'); grd.addColorStop(0.7, 'rgba(255,196,130,0.18)'); grd.addColorStop(1, 'rgba(255,196,130,0.05)'); g.fillStyle = grd; g.fillRect(cx - 12, Zp(ROAD0 + 4.7), 24, Zp(ROAD0) - Zp(ROAD0 + 4.7)); }
+  // our own shop's glow reaching over the road
+  { g.save(); g.translate(X(0), Zp(GROUND.z0)); g.scale(7 * sx, 3.2 * sz);
+    const grd = g.createRadialGradient(0, 0, 0, 0, 0, 1); grd.addColorStop(0, 'rgba(255,200,150,0.22)'); grd.addColorStop(1, 'rgba(255,190,140,0)');
+    g.fillStyle = grd; g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.fill(); g.restore(); }
   g.globalCompositeOperation = 'source-over';
   // road markings: broken white centre line, solid yellow edge lines (South Africa)
-  g.fillStyle = 'rgba(200,200,190,0.26)'; for (let x = FAC.x0 + 1; x < FAC.x1; x += 9) g.fillRect(X(x), Zp(17.55), 3 * sx, 0.12 * sz);
-  g.fillStyle = 'rgba(220,180,60,0.34)'; g.fillRect(0, Zp(14.75), W, 0.1 * sz); g.fillRect(0, Zp(20.3), W, 0.1 * sz);
-  const walk = (z0, z1, base) => { // 450 mm pavers, joints ~8 mm (sub-texel: drawn as faint lines)
-    g.fillStyle = base; g.fillRect(0, Zp(z0), W, Zp(z1) - Zp(z0));
-    const lw = Math.max(1, 0.012 * sx);
-    g.fillStyle = 'rgba(0,0,0,0.11)';
-    for (let z = z0; z < z1; z += 0.45) g.fillRect(0, Zp(z), W, lw);
-    for (let x = FAC.x0; x < FAC.x1; x += 0.45) g.fillRect(X(x), Zp(z0), lw, Zp(z1) - Zp(z0));
-  };
-  walk(GROUND.z0, 14.2, '#3b3838');
-  g.fillStyle = '#6a655e'; g.fillRect(0, Zp(14.2), W, Zp(14.36) - Zp(14.2));
-  walk(KERB_FAR, GROUND.z1, '#35333a');
-  g.fillStyle = '#5a5650'; g.fillRect(0, Zp(20.64), W, Zp(KERB_FAR) - Zp(20.64));
+  const mid = (ROAD0 + ROAD1) / 2;
+  g.fillStyle = 'rgba(200,200,190,0.26)'; for (let x = FAC.x0 + 1; x < FAC.x1; x += 9) g.fillRect(X(x), Zp(mid - 0.06), 3 * sx, 0.12 * sz);
+  g.fillStyle = 'rgba(220,180,60,0.34)'; g.fillRect(0, Zp(ROAD0 + 0.39), W, 0.1 * sz); g.fillRect(0, Zp(ROAD1 - 0.34), W, 0.1 * sz);
+  // our kerb, the far kerb + far pavement
+  g.fillStyle = '#6a655e'; g.fillRect(0, 0, W, Zp(ROAD0));
+  g.fillStyle = '#5a5650'; g.fillRect(0, Zp(ROAD1), W, Zp(KERB_FAR) - Zp(ROAD1));
+  g.fillStyle = '#35333a'; g.fillRect(0, Zp(KERB_FAR), W, Zp(GROUND.z1) - Zp(KERB_FAR));
+  const lw = Math.max(1, 0.012 * sx); g.fillStyle = 'rgba(0,0,0,0.11)';
+  for (let z = KERB_FAR; z < GROUND.z1; z += 0.45) g.fillRect(0, Zp(z), W, lw);
+  for (let x = FAC.x0; x < FAC.x1; x += 0.45) g.fillRect(X(x), Zp(KERB_FAR), lw, Zp(GROUND.z1) - Zp(KERB_FAR));
   g.globalCompositeOperation = 'lighter';
-  // warm spill from our own windows: a soft elliptical pool (no hard polygon edge to alias up close)
-  { g.save(); g.translate(X(0), Zp(GROUND.z0)); g.scale(10.5 * sx, 4.6 * sz);
-    const grd = g.createRadialGradient(0, 0, 0, 0, 0, 1); grd.addColorStop(0, 'rgba(255,200,150,0.55)'); grd.addColorStop(0.45, 'rgba(255,192,142,0.26)'); grd.addColorStop(0.8, 'rgba(255,190,140,0.07)'); grd.addColorStop(1, 'rgba(255,190,140,0)');
-    g.fillStyle = grd; g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.fill(); g.restore(); }
   for (const b of plan) { if (b.kind === 'closed') continue; const L = SHOP_LIGHT[b.kind];
-    const grd = g.createLinearGradient(0, Zp(GROUND.z1), 0, Zp(21.4)); grd.addColorStop(0, `rgba(${L[0]},${L[1]},${L[2]},0.32)`); grd.addColorStop(1, `rgba(${L[0]},${L[1]},${L[2]},0)`);
-    g.fillStyle = grd; g.fillRect(X(b.x0), Zp(21.4), X(b.x1) - X(b.x0), Zp(GROUND.z1) - Zp(21.4)); }
-  for (const [lx] of LAMPS) { const cx = X(lx), cz = Zp(13.5); const grd = g.createRadialGradient(cx, cz, 0, cx, cz, 4 * sx); grd.addColorStop(0, 'rgba(255,196,130,0.35)'); grd.addColorStop(1, 'rgba(255,196,130,0)'); g.fillStyle = grd; g.fillRect(cx - 4 * sx, cz - 4 * sx, 8 * sx, 8 * sx); }
+    const grd = g.createLinearGradient(0, Zp(GROUND.z1), 0, Zp(KERB_FAR + 0.6)); grd.addColorStop(0, `rgba(${L[0]},${L[1]},${L[2]},0.32)`); grd.addColorStop(1, `rgba(${L[0]},${L[1]},${L[2]},0)`);
+    g.fillStyle = grd; g.fillRect(X(b.x0), Zp(KERB_FAR + 0.6), X(b.x1) - X(b.x0), Zp(GROUND.z1) - Zp(KERB_FAR + 0.6)); }
   g.globalCompositeOperation = 'source-over';
+}
+
+/** Our pavement: 450 mm pavers, the warm pool from the shop windows + fascia, lamp pools. */
+function paintPavement(g, W, H) {
+  const sx = W / (PAVE.x1 - PAVE.x0), sz = H / (PAVE.z1 - PAVE.z0);
+  const X = x => (x - PAVE.x0) * sx, Zp = z => (z - PAVE.z0) * sz;   // canvas top = the shop front
+  g.fillStyle = '#3d3a38'; g.fillRect(0, 0, W, H);
+  const r = mulberry(4401);
+  for (let z = PAVE.z0; z < PAVE.z1; z += 0.45) for (let x = PAVE.x0; x < PAVE.x1; x += 0.45) {   // paver-to-paver tone
+    const k = (r() - 0.5) * 10; g.fillStyle = `rgba(${k > 0 ? '255,250,240' : '0,0,0'},${Math.abs(k) / 255 * 3})`; g.fillRect(X(x), Zp(z), 0.45 * sx, 0.45 * sz);
+  }
+  g.fillStyle = 'rgba(0,0,0,0.28)';
+  const lw = Math.max(1, 0.01 * sx);
+  for (let z = PAVE.z0; z < PAVE.z1; z += 0.45) g.fillRect(0, Zp(z), W, lw);
+  for (let x = PAVE.x0; x < PAVE.x1; x += 0.45) g.fillRect(X(x), 0, lw, H);
+  g.fillStyle = '#6a655e'; g.fillRect(0, Zp(PAVE.z1 - 0.16), W, H - Zp(PAVE.z1 - 0.16)); // kerb stones
+  g.globalCompositeOperation = 'lighter';
+  const pool = (x, z, rx, rz, c, a) => { g.save(); g.translate(X(x), Zp(z)); g.scale(rx * sx, rz * sz);
+    const grd = g.createRadialGradient(0, 0, 0, 0, 0, 1); grd.addColorStop(0, `rgba(${c},${a})`); grd.addColorStop(0.45, `rgba(${c},${a * 0.5})`); grd.addColorStop(1, `rgba(${c},0)`);
+    g.fillStyle = grd; g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.fill(); g.restore(); };
+  pool(0, PAVE.z0, 3.6, 2.6, '255,206,156', 0.5);          // the lit shop
+  pool(-1.7, PAVE.z0, 1.2, 1.6, '255,214,170', 0.25);       // …through each window
+  pool(1.7, PAVE.z0, 1.2, 1.6, '255,214,170', 0.25);
+  pool(0, PAVE.z0 + 0.4, 1.4, 1.1, '255,190,110', 0.2);      // fascia halo spill
+  for (const [lx, lz] of LAMPS) pool(lx, lz, 3.4, 2.2, '255,196,130', 0.3);
+  g.globalCompositeOperation = 'source-over';
+}
+
+/** Our building's street face: the upper storey over the fascia + the two neighbouring shops (u runs -x → +x as seen from the pavement). */
+function paintNear(g, W, H) {
+  const sx = W / (NEAR.x1 - NEAR.x0), sy = H / (NEAR.y1 - NEAR.y0);
+  const X = x => (x - NEAR.x0) * sx, Y = y => H - (y - NEAR.y0) * sy;
+  const sky = g.createLinearGradient(0, 0, 0, H * 0.4); sky.addColorStop(0, '#152a5a'); sky.addColorStop(1, '#2d4a8c');
+  g.fillStyle = sky; g.fillRect(0, 0, W, H);
+  const r = mulberry(4466);
+  const bldg = (x0, x1, top, col) => {
+    const f = g.createLinearGradient(0, Y(top), 0, Y(0));
+    f.addColorStop(0, rgb(col, 0.55)); f.addColorStop(0.55, rgb(col, 0.78)); f.addColorStop(1, rgb(mix(col, [150, 100, 70], 0.3), 1.0));
+    g.fillStyle = f; g.fillRect(X(x0), Y(top), X(x1) - X(x0), Y(0) - Y(top));
+    g.fillStyle = rgb(mix(col, [235, 230, 220], 0.3), 0.85); g.fillRect(X(x0), Y(top - 0.3), X(x1) - X(x0), 0.12 * sy);   // cornice
+    g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(X(x0), Y(top - 0.3) + 0.12 * sy, X(x1) - X(x0), 0.05 * sy);
+  };
+  const sash = (x, y0, lit) => {
+    g.fillStyle = lit ? rgb([255, 196, 128], 0.85) : 'rgb(26,30,46)'; g.fillRect(X(x - 0.45), Y(y0 + 1.7), 0.9 * sx, 1.7 * sy);
+    g.fillStyle = 'rgba(20,16,18,0.7)'; g.fillRect(X(x) - 1, Y(y0 + 1.7), 2, 1.7 * sy); g.fillRect(X(x - 0.45), Y(y0 + 0.85), 0.9 * sx, 2);
+    g.fillStyle = 'rgba(235,230,220,0.6)'; g.fillRect(X(x - 0.52), Y(y0), 1.04 * sx, 0.07 * sy);
+  };
+  // our building: warm cream plaster, two sash windows upstairs, the fascia halo washing the wall
+  bldg(-2.95, 2.95, 8.6, [214, 200, 176]);
+  sash(-1.2, 5.2, true); sash(1.2, 5.2, false);
+  g.globalCompositeOperation = 'lighter';
+  { const cx = X(0), cy = Y(3.45), grd = g.createRadialGradient(cx, cy, 0, cx, cy, 3.4 * sx); grd.addColorStop(0, 'rgba(255,190,110,0.32)'); grd.addColorStop(1, 'rgba(255,190,110,0)'); g.fillStyle = grd; g.fillRect(cx - 3.4 * sx, cy - 3.4 * sx, 6.8 * sx, 6.8 * sx); }
+  g.globalCompositeOperation = 'source-over';
+  // neighbours: left a closed boutique (roller shutter), right a lit café with an awning
+  for (const [x0, x1, top, col, lit] of [[-12, -2.95, 7.6, [150, 172, 150], false], [2.95, 12, 7.9, [196, 140, 128], true]]) {
+    bldg(x0, x1, top, col);
+    for (let x = x0 + 1.4; x < x1 - 0.8; x += 2.2) sash(x, 4.9, r() < 0.45);
+    const s0 = lit ? 3.4 : 3.2, a = x0 + 0.5, b = x1 - 0.5;
+    g.fillStyle = 'rgb(28,26,24)'; g.fillRect(X(a), Y(s0 + 0.55), X(b) - X(a), 0.5 * sy);            // their signboard
+    g.fillStyle = 'rgba(245,225,180,0.55)'; g.fillRect(X((a + b) / 2 - 1), Y(s0 + 0.33), 2 * sx, 2);
+    if (lit) {
+      const grd = g.createLinearGradient(0, Y(s0), 0, Y(0.2)); grd.addColorStop(0, 'rgb(170,120,80)'); grd.addColorStop(1, 'rgb(250,196,130)');
+      g.fillStyle = grd; g.fillRect(X(a), Y(s0), X(b) - X(a), Y(0.2) - Y(s0));
+      g.fillStyle = 'rgba(40,24,18,0.45)'; for (let i = 0; i < 7; i++) { const px = X(a + 0.4 + r() * (b - a - 1)); const hh = 0.9 + r() * 0.8; g.fillRect(px, Y(hh), 4 + r() * 6, Y(0.2) - Y(hh)); }
+      g.fillStyle = 'rgba(14,12,14,0.85)'; for (let mx = a; mx <= b + 0.01; mx += (b - a) / 4) g.fillRect(X(mx) - 1, Y(s0), 3, Y(0.2) - Y(s0));
+      g.fillStyle = 'rgb(92,34,38)'; g.fillRect(X(a - 0.2), Y(s0 + 0.05), X(b + 0.2) - X(a - 0.2), 0.34 * sy);                    // awning
+      g.fillStyle = 'rgba(255,255,255,0.12)'; for (let x = a; x < b; x += 0.5) g.fillRect(X(x), Y(s0 + 0.05), 0.25 * sx, 0.34 * sy);
+    } else {
+      g.fillStyle = 'rgb(66,68,76)'; g.fillRect(X(a), Y(s0), X(b) - X(a), Y(0.15) - Y(s0));
+      g.fillStyle = 'rgba(20,20,26,0.4)'; for (let y = Y(s0); y < Y(0.15); y += 3) g.fillRect(X(a), y, X(b) - X(a), 1);
+    }
+    g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(X(x0), Y(0.15), X(x1) - X(x0), 0.15 * sy + 2);
+  }
+  // our pier ends: plaster pilasters either side of the storefront, a dark plinth line
+  g.fillStyle = rgb([214, 200, 176], 0.72); g.fillRect(X(-2.95), Y(2.6), X(-2.45) - X(-2.95), Y(0) - Y(2.6)); g.fillRect(X(2.45), Y(2.6), X(2.95) - X(2.45), Y(0) - Y(2.6));
+  g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(X(-2.95), Y(0.12), X(2.95) - X(-2.95), 0.12 * sy);
 }
 
 function paintBokeh(g, W, H, rng) {
@@ -256,8 +334,11 @@ export function buildExterior(ctx, batch, AM) {
   const big = tier !== 'low';
   const farTex = kit.canvasTexture(big ? 1024 : 512, big ? 512 : 256, (g, w, h) => paintFar(g, w, h, kit.rng(76)));
   const facTex = kit.canvasTexture(big ? 2048 : 1024, big ? 256 : 128, (g, w, h) => paintFacade(g, w, h, plan, kit.rng(77)));
-  const gndTex = kit.canvasTexture(big ? 2048 : 1024, big ? 512 : 256, (g, w, h) => paintGround(g, w, h, plan));
+  const gndTex = kit.canvasTexture(big ? 2048 : 1024, big ? 256 : 128, (g, w, h) => paintGround(g, w, h, plan));
   gndTex.anisotropy = ctx.q.anisotropy;
+  const paveTex = kit.canvasTexture(big ? 1024 : 512, big ? 256 : 128, (g, w, h) => paintPavement(g, w, h));
+  paveTex.anisotropy = ctx.q.anisotropy;
+  const nearTex = kit.canvasTexture(big ? 1024 : 512, big ? 512 : 256, (g, w, h) => paintNear(g, w, h));
   const bokTex = kit.canvasTexture(1024, 256, (g, w, h) => paintBokeh(g, w, h, kit.rng(79)));
   const group = new THREE.Group(); group.name = 'exterior';
   const far = new THREE.Mesh(planeZ(FAR.x0, FAR.x1, FAR.y0, FAR.y1, FAR.z), AM.glow('sky', farTex, new THREE.Color(0.9, 0.9, 0.96)));
@@ -274,13 +355,23 @@ export function buildExterior(ctx, batch, AM) {
   const gnd = new THREE.Mesh(new THREE.PlaneGeometry(FAC.x1 - FAC.x0, GROUND.z1 - GROUND.z0).rotateX(-Math.PI / 2).translate(0, -0.012, (GROUND.z0 + GROUND.z1) / 2),
     AM.glow('street', gndTex, new THREE.Color(0.8, 0.8, 0.86)));
   gnd.name = 'street';
+  const pave = new THREE.Mesh(new THREE.PlaneGeometry(PAVE.x1 - PAVE.x0, PAVE.z1 - PAVE.z0).rotateX(-Math.PI / 2).translate((PAVE.x0 + PAVE.x1) / 2, -0.004, (PAVE.z0 + PAVE.z1) / 2),
+    AM.glow('pavement', paveTex, new THREE.Color(0.95, 0.93, 0.92)));
+  pave.name = 'pavement';
+  // our building's street face: a plane facing +z (the pavement) with the storefront hole; u runs -x → +x
+  const nearShape = new THREE.Shape([[NEAR.x0, NEAR.y0], [NEAR.hole[0], NEAR.y0], [NEAR.hole[0], NEAR.hole[2]], [NEAR.hole[1], NEAR.hole[2]], [NEAR.hole[1], NEAR.y0],
+    [NEAR.x1, NEAR.y0], [NEAR.x1, NEAR.y1], [NEAR.x0, NEAR.y1]].map(([x, y]) => new THREE.Vector2(x, y)));
+  const ng = new THREE.ShapeGeometry(nearShape).translate(0, 0, NEAR.z);
+  { const p = ng.attributes.position, uv = ng.attributes.uv; for (let i = 0; i < p.count; i++) uv.setXY(i, (p.getX(i) - NEAR.x0) / (NEAR.x1 - NEAR.x0), (p.getY(i) - NEAR.y0) / (NEAR.y1 - NEAR.y0)); }
+  const near = new THREE.Mesh(ng, AM.glow('streetFace', nearTex, new THREE.Color(0.92, 0.9, 0.9)));
+  near.name = 'streetFace';
   const bparts = [];
   const bq = (w, h, x, y, z, u0, u1) => { const g = new THREE.PlaneGeometry(w, h).rotateY(Math.PI); const uv = g.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) > 0.5 ? u0 : u1); g.translate(x, y, z); bparts.push(g); };
-  bq(60, 7, 0, 3.2, 19.2, 0.0, 0.75);
+  bq(60, 7, 0, 3.2, 14.2, 0.0, 0.75);
   for (const [lx, lz] of LAMPS) bq(1.9, 1.9, lx, 3.95, lz - 0.02, 0.75, 1.0);
   const bokeh = new THREE.Mesh(kit.mergeGeometries(bparts), AM.add('bokeh', bokTex, new THREE.Color(1.1, 1.05, 1.0))); bokeh.name = 'bokeh'; bokeh.renderOrder = -1;
-  group.add(far, fac, gnd, bokeh);
-  for (const m of [far, fac, gnd, bokeh]) m.raycast = () => {}; // backdrop: never intercept taps
+  group.add(far, fac, gnd, pave, near, bokeh);
+  for (const m of [far, fac, gnd, pave, near, bokeh]) m.raycast = () => {}; // backdrop: never intercept taps
 
   // 3-D street furniture for parallax → shared steel / glow batches
   const post = kit.lathe([[0.16, 0], [0.16, 0.08], [0.11, 0.14], [0.09, 0.5], [0.07, 0.6], [0.055, 0.7], [0.05, 3.6], [0.065, 3.66], [0.065, 3.72], [0, 3.72]], 14);
@@ -291,8 +382,8 @@ export function buildExterior(ctx, batch, AM) {
     batch.add('glow', new THREE.CylinderGeometry(0.13, 0.07, 0.4, 8), mat4([lx, 4.04, lz]), { color: [2.6, 2.0, 1.3] });
   }
   for (let x = -7.2; x <= 7.3; x += 1.6) {
-    if (Math.abs(x + 5.8) < 0.5) continue;
-    batch.add('steel', kit.lathe([[0.05, 0], [0.05, 0.62], [0.065, 0.64], [0.065, 0.69], [0.04, 0.74], [0, 0.76]], 10), mat4([x, 0, 14.05]));
+    if (LAMPS.some(([lx]) => Math.abs(x - lx) < 0.5)) continue;
+    batch.add('steel', kit.lathe([[0.05, 0], [0.05, 0.62], [0.065, 0.64], [0.065, 0.69], [0.04, 0.74], [0, 0.76]], 10), mat4([x, 0, PAVE.z1 - 0.15]));
   }
   // cast-iron verandas over the far pavement: slim posts at the kerb + a thin roof
   const vpost = new THREE.CylinderGeometry(0.04, 0.05, 3.05, 8);

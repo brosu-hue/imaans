@@ -1,38 +1,35 @@
 // IMAANS signage. One gold lettering atlas (gild program) + one additive glow atlas (add program):
-//  • the halo-lit wordmark above the shoe wall: crown, IMAANS in Roman capitals (glyphs.js), rules +
-//    SHOES & CLOTHING in spaced caps. Gold metal faces stand 45 mm off the charcoal wall on darker
-//    "returns"; LEDs behind them wash the wall (halo quad, depth-occluded by the letters).
-//  • department signs from layout.DEPARTMENTS: matte black boards with a brass sandwich edge and gold
-//    lettering hung from the ceiling on brass rods — CLOTHES / ACCESSORIES face the central aisle, a pair
-//    of SHOES boards frame the shoe salon entrance.
-//  • STAFF ONLY lettering on the staff door, the exit sign face, storefront vinyl (the same wordmark
-//    artwork, logo roundels on the door leaves) and the opening-hours decal computed from brand.hours.
+//  • the lit logo on the black fascia outside (layout ZONES.signage.logo): crown, IMAANS in Roman
+//    capitals (glyphs.js), rules + SHOES & CLOTHING in spaced caps. Gold metal faces stand off the board
+//    on darker "returns"; LEDs behind them wash the fascia (halo quad, depth-occluded by the letters).
+//  • the lit logo panel on the right wall inside (ZONES.signage.panel): the same lockup on a black board.
+//  • STAFF ONLY lettering on the staff door, the exit sign face above it, and the opening-hours decal on
+//    the right window (reads from the pavement), computed from brand.hours.
 import * as THREE from 'three';
 import { drawCrown, goldGradient } from '../../core/catalog.js';
 import { drawWord, wordWidth } from './glyphs.js';
 import { mat4 } from './util.js';
+import { ZONES } from '../../core/layout.js';
 
 // ---------------------------------------------------------------- metric layout of the wordmark (m)
-const CAP = 0.32, TRACK = 200, TAG_CAP = 0.05, CROWN_W = 0.27, PAD = 0.015;
+// The crown is the big element of the real fascia sign (≈ 1.1 m tall on the 1.7 m fascia): at scale 1 the
+// lockup is ≈ 2.0 × 0.98 m, so ZONES.signage.logo (h 1.10) scales it to ≈ 2.25 m — whole in the start view.
+const CAP = 0.32, TRACK = 200, TAG_CAP = 0.06, CROWN_W = 0.7, PAD = 0.015;
 const WW = wordWidth('IMAANS', TRACK) / 1000 * CAP;             // wordmark width ≈ 1.97 m
 const CROWN_H = CROWN_W * 126 / 192;
 const Y_WORD = TAG_CAP + 0.06, Y_CROWN = Y_WORD + CAP + 0.045;   // baselines above the tagline baseline
-export const LOCKUP = { w: WW + 2 * PAD, h: Y_CROWN + CROWN_H + 2 * PAD, baseY: 3.635, z: -11 };
-LOCKUP.y0 = LOCKUP.baseY - PAD;                                  // world y of the letters quad bottom
-const HALO_M = 0.2;                                               // halo quad margin around the letters (m)
+export const LOCKUP = { w: WW + 2 * PAD, h: Y_CROWN + CROWN_H + 2 * PAD };  // metric size at scale 1 (≈ 2.0 × 0.98 m)
+const HALO_M = 0.2;                                               // halo quad margin around the letters (m, at scale 1)
+const SG = ZONES.signage, FASCIA_Z = ZONES.storefront.z + 0.18;  // front face of the fascia board (storefront.js)
+const DOOR = ZONES.partition.staffDoor, PZ = ZONES.partition.z;
+const STAFF = { w: 0.34, h: 0.085, x: DOOR.cx, y: 1.6, z: PZ - 0.005 };
 
-// department sign boards (m)
-const BOARD = { w: 1.28, h: 0.3, d: 0.036 };
-const STAFF = { w: 0.42, h: 0.105, x: -7.05, y: 1.6, z: -11.0185 };
-
-// ---------------------------------------------------------------- atlas regions (px @ 2048 × 1280)
-const R = {
-  lock: [0, 0, 2048, 700],
-  clothes: [0, 700, 1024, 240], accessories: [1024, 700, 1024, 240],
-  shoesBoard: [0, 940, 640, 150], staff: [660, 940, 600, 150],
-  round: [0, 1090, 190, 190], hours: [1260, 940, 788, 340],
-};
-const G = { halo: [0, 0, 1024, 462], exit: [0, 760, 256, 102] }; // glow atlas regions (px @ 1024²)
+// ---------------------------------------------------------------- atlas regions (px @ 2048 × AH0)
+// The lockup rect keeps the lockup's aspect (the quads map it 1:1); staff lettering + hours decal below it.
+const LH = Math.ceil(2048 * LOCKUP.h / LOCKUP.w);
+const AH0 = LH + 320;
+const R = { lock: [0, 0, 2048, LH], staff: [0, LH + 10, 600, 150], hours: [640, LH + 10, 700, 302] };
+const G = { halo: [0, 0, 1024, Math.ceil(1024 * (LOCKUP.h + 2 * HALO_M) / (LOCKUP.w + 2 * HALO_M))], exit: [0, 760, 256, 102] }; // glow atlas (px @ 1024²)
 
 const GOLD_MID = '#d9ab48';
 
@@ -68,27 +65,6 @@ function paintLockup(g, fonts, x, y, w, h, margin, mode) {
   g.fillStyle = gold ? GOLD_MID : '#fff';
   g.fillRect(X(0), ry - rt / 2, X(WW / 2) - tw / 2 - gap - X(0), rt);
   g.fillRect(X(WW / 2) + tw / 2 + gap, ry - rt / 2, X(WW) - (X(WW / 2) + tw / 2 + gap), rt);
-}
-
-/** A department board face: thin gold frame, small crown (tall boards), the name in spaced display caps —
- *  auto-fitted inside the frame whatever the font or the name's length. */
-function paintBoard(g, fonts, [x, y, w, h], name, capM, boardH) {
-  const k = h / boardH;
-  const inset = 0.022 * k, lt = Math.max(1.5, 0.0035 * k);
-  g.strokeStyle = GOLD_MID; g.lineWidth = lt;
-  g.strokeRect(x + inset, y + inset, w - 2 * inset, h - 2 * inset);
-  const crown = boardH >= 0.25;
-  const txt = name.toUpperCase();
-  let cap = capM * k, track = cap * 0.3;
-  const maxW = w - 2 * inset - 0.09 * k;
-  let font = capFont(g, fonts.display, 500, cap);
-  g.font = font; const w0 = [...txt].reduce((a, c) => a + g.measureText(c).width, 0) + track * (txt.length - 1);
-  if (w0 > maxW) { const f = maxW / w0; cap *= f; track *= f; font = capFont(g, fonts.display, 500, cap); }
-  const crownW = 0.062 * k, crownH = crownW * 126 / 192, gap = 0.034 * k;
-  const blockH = cap + (crown ? crownH + gap : 0);
-  const base = y + h / 2 + blockH / 2;
-  if (crown) { const cb = base - cap - gap; drawCrown(g, x + w / 2, cb - 59 / 192 * crownW, crownW, goldGradient(g, cb - crownH, cb)); }
-  spacedText(g, txt, x + w / 2, base, font, track, goldGradient(g, base - cap, base));
 }
 
 /** "Mon–Thu 09:00–17:30", … grouped from brand.hours.days (never typed). */
@@ -134,15 +110,6 @@ function paintHours(g, fonts, [x, y, w, h], brand) {
   if (note) { g.textAlign = 'center'; g.fillStyle = 'rgba(244,236,220,0.8)'; g.font = capFont(g, fonts.sans, 400, lh * 0.3); g.fillText(note, x + w / 2, top + lh * (3.1 + lines.length)); }
 }
 
-function paintRoundel(g, [x, y, w]) {
-  const cx = x + w / 2, cy = y + w / 2, r = w * 0.46;
-  g.strokeStyle = goldGradient(g, cy - r, cy + r); g.lineWidth = w * 0.045;
-  g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
-  g.lineWidth = w * 0.012; g.beginPath(); g.arc(cx, cy, r * 0.86, 0, Math.PI * 2); g.stroke();
-  drawCrown(g, cx, cy - r * 0.34, r * 0.72, goldGradient(g, cy - r * 0.62, cy - r * 0.1));
-  drawWord(g, 'I', cx - 0.5 * r * 0.62 * 350 / 1000, cy + r * 0.55, r * 0.62, 0, (gg) => goldGradient(gg, 1000, 0));
-}
-
 function paintExit(g, [x, y, w, h]) {
   g.save(); g.translate(x, y);
   g.fillStyle = '#0f8f4c'; g.fillRect(0, 0, w, h);
@@ -173,22 +140,17 @@ function glowOf(g, [x, y, w, h], paint, passes, rgb) {
   g.restore();
 }
 
-/** Gold lettering atlas (2048·sc × 1280·sc, transparent background). */
-export function paintGoldAtlas(g, fonts, brand, layout, sc = 1) {
+/** Gold lettering atlas (2048·sc × 1088·sc, transparent background). */
+export function paintGoldAtlas(g, fonts, brand, sc = 1) {
   const rs = (r) => r.map(v => v * sc);
-  g.clearRect(0, 0, 2048 * sc, 1280 * sc);
+  g.clearRect(0, 0, 2048 * sc, AH0 * sc);
   const [lx, ly, lw, lh] = rs(R.lock); paintLockup(g, fonts, lx, ly, lw, lh, 0, 'gold');
-  const D = layout.DEPARTMENTS;
-  paintBoard(g, fonts, rs(R.clothes), (D.clothes || {}).name || 'Clothes', 0.092, BOARD.h);
-  paintBoard(g, fonts, rs(R.accessories), (D.accessories || {}).name || 'Accessories', 0.092, BOARD.h);
-  paintBoard(g, fonts, rs(R.shoesBoard), (D.shoes || {}).name || 'Shoes', 0.092, BOARD.h);
   { const [x, y, w, h] = rs(R.staff);
     let cap = h * 0.36, tr = h * 0.14; g.font = capFont(g, fonts.sans, 500, cap);
     const w0 = [...'STAFF ONLY'].reduce((a, c) => a + g.measureText(c).width, 0) + tr * 9;
     if (w0 > w * 0.92) { cap *= w * 0.92 / w0; tr *= w * 0.92 / w0; }
     spacedText(g, 'STAFF ONLY', x + w / 2, y + h * 0.62, capFont(g, fonts.sans, 500, cap), tr, '#e6c170');
     g.fillStyle = GOLD_MID; g.fillRect(x + w * 0.34, y + h * 0.8, w * 0.32, Math.max(1, h * 0.03)); }
-  paintRoundel(g, rs(R.round));
   paintHours(g, fonts, rs(R.hours), brand);
 }
 
@@ -208,9 +170,9 @@ export function buildSignage(ctx, batch, AM) {
   const { kit, tier, q, brand } = ctx;
   const fonts = ctx.fonts || { display: 'Georgia, serif', sans: 'sans-serif' };
   const sc = tier === 'low' ? 0.5 : 1;
-  const AW = 2048 * sc, AH = 1280 * sc, GW = 1024 * sc;
+  const AW = 2048 * sc, AH = AH0 * sc, GW = 1024 * sc;
   // ---------------- gold lettering atlas ----------------
-  const goldTex = kit.canvasTexture(AW, AH, (g) => paintGoldAtlas(g, fonts, brand, ctx.layout, sc));
+  const goldTex = kit.canvasTexture(AW, AH, (g) => paintGoldAtlas(g, fonts, brand, sc));
   goldTex.anisotropy = q.anisotropy;
   // ---------------- additive glow atlas ----------------
   const glowTex = kit.canvasTexture(GW, GW, (g) => paintGlowAtlas(g, fonts, sc));
@@ -225,7 +187,7 @@ export function buildSignage(ctx, batch, AM) {
   // ---------------- geometry helpers ----------------
   const parts = { gold: [], back: [], decal: [], halo: [], exit: [] };
   /** Quad w×h centred at pos, facing `face` ('+z','-z','+x','-x'), showing atlas rect r (px) of an atlas W×H. */
-  const quad = (list, w, h, pos, face, r, W = 2048, Hh = 1280) => {
+  const quad = (list, w, h, pos, face, r, W = 2048, Hh = AH0) => {
     const geo = new THREE.PlaneGeometry(w, h);
     if (face === '-z') geo.rotateY(Math.PI); else if (face === '+x') geo.rotateY(Math.PI / 2); else if (face === '-x') geo.rotateY(-Math.PI / 2);
     const uv = geo.attributes.uv, u0 = r[0] / W, u1 = (r[0] + r[2]) / W, v1 = 1 - r[1] / Hh, v0 = 1 - (r[1] + r[3]) / Hh;
@@ -233,50 +195,33 @@ export function buildSignage(ctx, batch, AM) {
     geo.translate(pos[0], pos[1], pos[2]); list.push(geo);
   };
 
-  // ---------------- the halo-lit wordmark ----------------
-  const cy = LOCKUP.y0 + LOCKUP.h / 2;
-  quad(parts.gold, LOCKUP.w, LOCKUP.h, [0, cy, -10.955], '+z', R.lock);
-  quad(parts.back, LOCKUP.w, LOCKUP.h, [0, cy - 0.0015, -10.975], '+z', R.lock);
-  quad(parts.halo, LOCKUP.w + 2 * HALO_M, LOCKUP.h + 2 * HALO_M, [0, cy, -10.994], '+z', G.halo, 1024, 1024);
+  // ---------------- the lit logo on the fascia (outside, facing the pavement) ----------------
+  // Lockup scaled to the logo height (ZONES.signage.logo); letters 45 mm off the board on darker returns, halo behind.
+  const lock = (k, c, face, off) => {    // off(d) → world position d metres out from the board at the centre c
+    quad(parts.gold, LOCKUP.w * k, LOCKUP.h * k, off(0.045 * k), face, R.lock);
+    quad(parts.back, LOCKUP.w * k, LOCKUP.h * k, off(0.025 * k), face, R.lock);
+    quad(parts.halo, (LOCKUP.w + 2 * HALO_M) * k, (LOCKUP.h + 2 * HALO_M) * k, off(0.006), face, G.halo, 1024, 1024);
+  };
+  const kF = SG.logo.h / LOCKUP.h;
+  lock(kF, null, '+z', (d) => [SG.logo.cx, SG.logo.cy, FASCIA_Z + d]);
 
-  // ---------------- hanging department boards (layout.DEPARTMENTS) ----------------
-  // CLOTHES / ACCESSORIES hang at their layout positions facing the central aisle. SHOES: a pair of boards
-  // hung at the salon entrance over the try-on benches, facing the entrance (the layout's spot on the wall
-  // below the wordmark would sit 45 cm in front of the lettering and hide it from the salon).
-  const D = ctx.layout.DEPARTMENTS;
-  const boards = [];
-  for (const [id, region] of [['clothes', R.clothes], ['accessories', R.accessories]]) {
-    const s = D[id] && D[id].sign; if (s) boards.push({ pos: s.pos, along: 'z', region });
-  }
-  if (D.shoes) for (const x of [-3.1, 3.1]) boards.push({ pos: [x, 3.25, -6.9], along: 'x', region: R.shoesBoard });
-  for (const b of boards) {
-    const [x, y, z] = b.pos, rot = b.along === 'z' ? [0, Math.PI / 2, 0] : [0, 0, 0];
-    batch.add('darkFree', new kit.RoundedBoxGeometry(BOARD.w, BOARD.h, BOARD.d, 2, 0.008), mat4([x, y, z], rot));
-    batch.add('brass', new kit.RoundedBoxGeometry(BOARD.w + 0.016, BOARD.h + 0.016, 0.012, 1, 0.004), mat4([x, y, z], rot));
-    const off = BOARD.d / 2 + 0.0008;
-    if (b.along === 'z') for (const side of [1, -1]) quad(parts.gold, BOARD.w, BOARD.h, [x + side * off, y, z], side > 0 ? '+x' : '-x', b.region);
-    else for (const side of [1, -1]) quad(parts.gold, BOARD.w, BOARD.h, [x, y, z + side * off], side > 0 ? '+z' : '-z', b.region);
-    const top = y + BOARD.h / 2 + 0.008, len = 4.6 - top;
-    for (const d of [-0.46, 0.46]) {
-      const px = b.along === 'x' ? x + d : x, pz = b.along === 'z' ? z + d : z;
-      batch.add('brass', new THREE.CylinderGeometry(0.004, 0.004, len, 8), mat4([px, top + len / 2, pz]));
-      batch.add('brass', new THREE.CylinderGeometry(0.026, 0.03, 0.012, 20), mat4([px, 4.594, pz]));
-      batch.add('brass', new THREE.CylinderGeometry(0.009, 0.009, 0.02, 12), mat4([px, top + 0.006, pz]));
-    }
+  // ---------------- the lit logo panel on the right wall (inside, facing -x) ----------------
+  {
+    const P = SG.panel, py = (P.y[0] + P.y[1]) / 2, bx = P.x;                 // board centre (0.03 thick: front at P.x - 0.015)
+    batch.add('darkFree', new kit.RoundedBoxGeometry(0.03, P.h, P.w, 2, 0.006), mat4([bx, py, P.cz]));
+    batch.add('brass', new kit.RoundedBoxGeometry(0.012, P.h + 0.014, P.w + 0.014, 1, 0.003), mat4([bx + 0.012, py, P.cz]));
+    const kP = Math.min((P.w - 0.14) / LOCKUP.w, (P.h - 0.1) / LOCKUP.h);   // the lockup fills the board (≈ 0.86 m wide)
+    lock(kP, null, '-x', (d) => [bx - 0.015 - d, py, P.cz]);
   }
 
   // ---------------- staff door lettering + exit sign ----------------
   quad(parts.decal, STAFF.w, STAFF.h, [STAFF.x, STAFF.y, STAFF.z], '+z', R.staff); // matte gold paint: reads on the black door
-  batch.add('steel', new kit.RoundedBoxGeometry(0.36, 0.14, 0.035, 1, 0.006), mat4([-7.05, 2.36, -11 + 0.0175]));
-  quad(parts.exit, 0.33, 0.132, [-7.05, 2.36, -11 + 0.0362], '+z', G.exit, 1024, 1024);
+  batch.add('steel', new kit.RoundedBoxGeometry(0.3, 0.12, 0.03, 1, 0.006), mat4([DOOR.cx, DOOR.h + 0.2, PZ + 0.015]));
+  quad(parts.exit, 0.27, 0.108, [DOOR.cx, DOOR.h + 0.2, PZ + 0.0305], '+z', G.exit, 1024, 1024);
 
-  // ---------------- storefront vinyl (reads from inside), door roundels, hours decal ----------------
-  const SZ = 11.0;
-  const vw = 2.3, vh = vw * R.lock[3] / R.lock[2];
-  quad(parts.gold, vw, vh, [0, 3.76, SZ - 0.004], '-z', R.lock);
-  for (const x of [-0.56, 0.56]) quad(parts.gold, 0.26, 0.26, [x, 1.62, SZ - 0.024], '-z', R.round);
-  const hw = 0.64, hh = hw * R.hours[3] / R.hours[2];
-  quad(parts.decal, hw, hh, [1.77, 1.44, SZ - 0.004], '-z', R.hours);
+  // ---------------- opening hours on the right window (reads from the pavement) ----------------
+  const hw = 0.5, hh = hw * R.hours[3] / R.hours[2], win = ZONES.storefront.windows[1];
+  quad(parts.decal, hw, hh, [(win[0] + win[1]) / 2, 1.3, ZONES.storefront.z + 0.004], '+z', R.hours);
 
   // ---------------- meshes ----------------
   const out = {};

@@ -1,150 +1,173 @@
-// Module: apparelDisplay — mannequins, the Spring Edit plinth, both window displays, the knit table and
-// the left denim/knit cubbies. Zones: windowLeft, windowRight, leftCubbies, plinth, knitTable.
+// Module: apparelDisplay — the two dressed mannequins in the left window and the folded-shelf unit on the right
+// wall of the real IMAANS shop (docs/REAL-LAYOUT.md). Zones (ctx.layout.ZONES): windowMannequins, foldedShelves.
 //
-// IMAANS: every look, stack, hat and hat box is a real product of ctx.catalog (names, Rand prices, sizes
-// with sold-out, colours); all copy on the printed signs comes from ctx.brand (the promo headline for the
-// plinth, the clothes promo line for the window) and the catalogue's clothing groups (apparelRails/imaans).
+// Merchandising is data: layout.splitClothes(byCategory('clothes')) gives the window its two lead pieces (each
+// worn by the baked figure whose silhouette fits it — figures.figureFor) and the shelves their folded clothes;
+// apparelRails hangs the rest, so every clothing product is shown at least once. The folded unit is built here
+// whole (espresso carcass, five shelves at ZONES.foldedShelves.shelfY, warm LED lips); its two lowest shelves hold
+// 5 folded stacks each, the three upper ones are left EMPTY for the fixtures module (accShelves).
 //
 // Mannequins are dressed SDF figures baked offline (tools/apparelDisplay-bake.mjs → assets/models/
-// mannequin-*.glb). At runtime every figure part is merged per material and per zone, recoloured from its
-// look's products, and a shared vertex patch turns individual figures on their base when tapped (no extra
-// draw calls). Folded stacks, hats and hat boxes are instanced with per-stack cards + colourways.
-// Shader programs are shared with apparelRails (print atlas, fabrics, LEDs / glows / contact shadows on
-// architecture's programs) — see apparelRails/imaans.js.
+// mannequin-*.glb). At runtime every figure part is merged per material, recoloured from its look's products,
+// and a shared vertex patch turns a figure on its base when tapped (no extra draw calls). Folded stacks are
+// instanced with per-stack cards + colourways. Shader programs are shared with apparelRails (fabrics, LEDs /
+// glows / contact shadows on architecture's programs) — see apparelRails/imaans.js.
 //
-// Helpers: apparelDisplay/{util,figures,plinth,windows,knitTable,cubbies,folded,stacks,signs}.js
+// Helpers: apparelDisplay/{util,figures,folded,stacks}.js
 import * as THREE from 'three';
-import { Batch, createTurnUniform, turnable } from './apparelDisplay/util.js';
-import { buildFigures } from './apparelDisplay/figures.js';
-import { buildPlinth } from './apparelDisplay/plinth.js';
-import { buildWindows, PODIUM_H } from './apparelDisplay/windows.js';
-import { buildKnitTable } from './apparelDisplay/knitTable.js';
-import { buildCubbies, cubbyLabel } from './apparelDisplay/cubbies.js';
-import { foldedGeo, bucketGeo } from './apparelDisplay/folded.js';
+import { Batch, createTurnUniform, rbox, mat4 } from './apparelDisplay/util.js';
+import { buildFigures, figureFor } from './apparelDisplay/figures.js';
+import { foldedGeo } from './apparelDisplay/folded.js';
 import { Stacks } from './apparelDisplay/stacks.js';
-import { createSigns } from './apparelDisplay/signs.js';
-import { buildGroups, promoCopy, deptLine, fromPrice, sizeLabels, lineOf, ShadowQuads, ledMaterial, glowMaterial, one, brandBoxGeo, albedo, rimPatch } from './apparelRails/imaans.js';
+import { makeGlow } from './apparelRails/labels.js';
+import { lineOf, lightToDark, productCard, albedo, swatchOf, ShadowQuads, ledMaterial, glowMaterial } from './apparelRails/imaans.js';
 
-const FIGS = [
-  { id: 'slip', zone: 'plinth', pos: [0.06, 0.3, -2.62], rot: -6 },
-  { id: 'trench', zone: 'plinth', pos: [-0.66, 0.3, -1.74], rot: 24 },
-  { id: 'street', zone: 'plinth', pos: [0.7, 0.3, -1.64], rot: -30, shoe: 'default' },
-  // window figures face the entrance aisle (≈ 3/4 toward the shop floor): they read from inside the store
-  // and in profile from the street instead of showing the shop their backs
-  { id: 'wrap', zone: 'winL', pos: [-5.95, PODIUM_H, 10.02], rot: 105 },
-  { id: 'suit', zone: 'winL', pos: [-4.2, PODIUM_H, 10.02], rot: 122, shoe: 'default' },
-  { id: 'knitdress', zone: 'winR', pos: [4.2, PODIUM_H, 10.02], rot: -122 },
-];
-const DRESS_FORM = { zone: 'winR', pos: [5.55, PODIUM_H, 9.95], rot: -112, scale: 12.5, standH: 0.6 };
+// Window figures turn from the street toward the door (deg, +y): they face the pavement start view three-quarters
+// and still read in profile from inside the shop.
+const WINDOW_ROT = [30, 26];
+
+// Folded unit joinery (m): off the wall (clears the skirting), board thicknesses, stacks.
+const GAP = 0.017, PANEL = 0.018, CHEEK = 0.03, SHELF_T = 0.03, TOP_T = 0.035;
+const STACK = { w: 0.17, d: 0.28, pitch: 0.195 };
+// Folded lines (one InstancedMesh each): geometry at real size, fabric, garments per stack.
+const FOLDS = {
+  knit:   { geo: { w: STACK.w, h: 0.055, d: STACK.d }, fabric: 'knit', n: 3 },
+  cotton: { geo: { w: STACK.w, h: 0.04, d: STACK.d, collar: false, inner: 1 }, fabric: 'cotton', n: 4 },
+  denim:  { geo: { w: STACK.w, h: 0.042, d: STACK.d, collar: false, inner: 1 }, fabric: 'denim', n: 4 },
+};
+const foldLine = p => { const l = lineOf(p); return l === 'knit' || l === 'cable' ? 'knit' : l === 'jeans' ? 'denim' : 'cotton'; };
+const isTop = p => ['knit', 'cable', 'camisole', 'shirt'].includes(lineOf(p));
+
+/** The two window figures: lead product (splitClothes), baked figure, footprint centre, turn, height. */
+function windowPlan(ctx) {
+  const Z = ctx.layout.ZONES.windowMannequins;
+  const { mannequins } = ctx.layout.splitClothes(ctx.catalog.byCategory('clothes'));
+  const taken = new Set();
+  return Z.items.map((it, i) => {
+    const lead = mannequins[i] || null;
+    const { id, part, shoe } = figureFor(lead || { tags: [], name: '' }, taken);
+    return { id, part, lead, shoe, zone: 'window', pos: [it.cx, 0, it.cz], rot: WINDOW_ROT[i % WINDOW_ROT.length], height: it.h, centre: true };
+  });
+}
 
 /** Start every download before any module builds (they stream in while architecture builds). */
 export function setup(ctx) {
-  for (const f of FIGS) ctx.assets.gltf('mannequin-' + f.id).catch(() => {});
-  ctx.assets.gltf('corset').catch(() => {});
+  for (const f of windowPlan(ctx)) ctx.assets.gltf('mannequin-' + f.id).catch(() => {});
   ctx.assets.gltf('shoe').catch(() => {});
   ctx.assets.gltf('shoe-lod').catch(() => {});
 }
 
 export async function build(ctx) {
   const t0 = performance.now();
-  const { mats, catalog, brand } = ctx;
+  const { mats, layout } = ctx;
   const root = ctx.group('apparelDisplay');
-  const groups = buildGroups(catalog, brand);
-  // printed copy — all from the brand + catalogue
-  const knitFam = groups.families.find(f => f.key === 'knitwear') || groups.families.find(f => f.products.some(p => ['knit', 'cable'].includes(lineOf(p))));
-  const sizes = sizeLabels(groups.clothes);
-  const sizeRange = sizes.length > 1 ? `Sizes ${sizes[0]} – ${sizes[sizes.length - 1]}` : '';
-  const bottoms = groups.clothes.filter(p => ['jeans', 'trouser', 'mini'].includes(lineOf(p)) || lineOf(p) === null);
-  const copy = {
-    season: promoCopy(brand),
-    knit: { label: knitFam ? knitFam.label : 'Knitwear', line: [knitFam ? `${knitFam.products.length} styles` : '', sizeRange].filter(Boolean).join(' · '), from: knitFam ? fromPrice(catalog, knitFam.products) : '' },
-    denim: { label: cubbyLabel(groups), line: [sizeRange, bottoms.length ? 'from ' + fromPrice(catalog, bottoms) : ''].filter(Boolean).join(' · ') },
-    window: { line: deptLine(brand, 'clothes') || brand.slogan, dept: (brand.departments.find(d => d.id === 'clothes') || {}).name || 'Clothes' },
-  };
   const staticBatch = new Batch();
   const shadows = new ShadowQuads();
-  const signs = createSigns(ctx, copy);
   const stacks = new Stacks(ctx);
   stacks.tint = albedo;
   const U = createTurnUniform();
-  const zoneBatches = new Map([['plinth', new Batch()], ['winL', new Batch()], ['winR', new Batch()]]);
   const times = {};
-
-  // instanced product lines (white base → instance colour = average albedo); IMAANS boxes are printed
-  stacks.line('knit', foldedGeo({ w: 0.3, h: 0.058, d: 0.26 }), mats.fabric('knit', '#ffffff'));
-  stacks.line('cable', foldedGeo({ w: 0.3, h: 0.07, d: 0.28 }), mats.fabric('cable', '#ffffff'));
-  stacks.line('denim', foldedGeo({ w: 0.36, h: 0.043, d: 0.31, collar: false, inner: 1 }), mats.fabric('denim', '#ffffff'));
-  stacks.line('hat', bucketGeo(), mats.fabric('canvas', '#ffffff'));
-  stacks.line('boxBlack', brandBoxGeo(signs.uv('boxBlack')), signs.material, { noColor: true });
-  stacks.line('boxIvory', brandBoxGeo(signs.uv('boxIvory')), signs.material, { noColor: true });
-
   let t = performance.now();
-  buildPlinth(ctx, { staticBatch, shadows, signs }); times.plinth = performance.now() - t; t = performance.now();
-  buildWindows(ctx, { staticBatch, shadows, signs }); times.windows = performance.now() - t; t = performance.now();
-  buildKnitTable(ctx, { staticBatch, shadows, signs, stacks, groups }); times.table = performance.now() - t; t = performance.now();
-  buildCubbies(ctx, { staticBatch, shadows, signs, stacks, groups }); times.cubbies = performance.now() - t; t = performance.now();
-  ctx.hotspots.add({ id: 'denim', label: listLabel([copy.denim.label, copy.knit.label]), pos: [-5.35, 1.62, -8.05], look: [-7.7, 1.35, -9.25], order: 28 });
-  const figs = await buildFigures(ctx, { root, figs: FIGS, dressForm: DRESS_FORM, staticBatch, shadows, zoneBatches, U });
+
+  // ---------------------------------------------------------------------------------------------
+  // Folded shelves: the whole unit (built facing +z in the zone frame, turned to the right wall)
+  // ---------------------------------------------------------------------------------------------
+  const Z = layout.ZONES.foldedShelves, SY = Z.shelfY;
+  const Mz = mat4([Z.cx, 0, Z.cz], [0, Z.yaw, 0]);
+  const at = (x, y, z) => Mz.clone().multiply(mat4([x, y, z]));
+  const W = Z.w, H = Z.h, zWall = -Z.d / 2, zBack = zWall + GAP + PANEL, zFront = Z.d / 2, xIn = W / 2 - CHEEK, D = zFront - zBack;
+  staticBatch.add('wood', rbox(W, H, PANEL, 0.003, 1, true), { matrix: at(0, H / 2, zWall + GAP + PANEL / 2) });
+  for (const s of [-1, 1]) staticBatch.add('wood', rbox(CHEEK, H, zFront - zWall - GAP, 0.004, 1, true), { matrix: at(s * (W / 2 - CHEEK / 2), H / 2, (zWall + GAP + zFront) / 2) });
+  staticBatch.add('wood', rbox(W, TOP_T, zFront - zWall - GAP, 0.005, 1), { matrix: at(0, H - TOP_T / 2, (zWall + GAP + zFront) / 2) });
+  staticBatch.add('wood', rbox(2 * xIn, SY[0] - SHELF_T, D - 0.03, 0.003, 1), { matrix: at(0, (SY[0] - SHELF_T) / 2, zBack + (D - 0.03) / 2) });   // recessed kick
+  const lit = [];   // board undersides with an LED lip: shelves 1 … 4 and the top
+  SY.forEach((y, i) => {
+    staticBatch.add('wood', rbox(2 * xIn, SHELF_T, D, 0.004, 1), { matrix: at(0, y - SHELF_T / 2, zBack + D / 2) });
+    if (i) lit.push(y - SHELF_T);
+  });
+  lit.push(H - TOP_T);
+  for (const y of lit) {
+    staticBatch.add('led', rbox(2 * xIn - 0.04, 0.005, 0.012, 0.001, 1), { matrix: at(0, y - 0.0025, zFront - 0.03) });
+    const below = SY.filter(s => s < y - 0.01).pop() ?? 0;
+    staticBatch.add('glow', glowQuad(-xIn, xIn, Math.max(below, y - 0.42), y, zBack + 0.002), { matrix: Mz });
+  }
+  const fc = new THREE.Vector3(0, 0, 0.08).applyMatrix4(Mz);
+  shadows.add(fc.x, 0.004, fc.z, W + 0.12, Z.d + 0.2, 0.55, Z.yaw);   // floor under / in front of the kick
+  ctx.colliders.addBox(Z.cx, Z.cz, W + 0.04, Z.d + 0.04, Z.yaw);
+
+  // the folded clothes: 5 stacks on each of the clothes shelves (tops above, bottoms below), every product once
+  const { folded } = layout.splitClothes(ctx.catalog.byCategory('clothes'));
+  const spots = Z.clothesShelves.length * Z.perShelf;
+  const plan = folded.map(p => ({ p, ci: lightToDark(p)[0] ?? 0 }));
+  for (let k = 0; plan.length < spots && folded.length; k++) {   // fewer products than spots: next colourways
+    const p = folded[k % folded.length], order = lightToDark(p), seen = plan.filter(q => q.p === p).length;
+    plan.push({ p, ci: order.length ? order[seen % order.length] : 0 });
+  }
+  plan.sort((a, b) => (isTop(b.p) - isTop(a.p)) || (folded.indexOf(a.p) - folded.indexOf(b.p)));
+  const shelves = Z.clothesShelves.slice().sort((a, b) => b - a);   // the higher clothes shelf gets the tops
+  for (const [key, L] of Object.entries(FOLDS)) stacks.line(key, foldedGeo(L.geo), mats.fabric(L.fabric, '#ffffff'));
+  const R = ctx.kit.rng(4417);
+  plan.slice(0, spots).forEach(({ p, ci }, i) => {
+    const shelf = shelves[Math.floor(i / Z.perShelf)], slot = i % Z.perShelf, key = foldLine(p), L = FOLDS[key];
+    const lx = (slot - (Z.perShelf - 1) / 2) * STACK.pitch, lz = zBack + 0.04 + STACK.d / 2, top = SY[shelf];
+    const items = [];
+    for (let k = 0; k < L.n; k++) {
+      const w = new THREE.Vector3(lx + (R() - 0.5) * 0.01, top + k * L.geo.h * 0.94, lz + (R() - 0.5) * 0.012).applyMatrix4(Mz);
+      items.push({ pos: w.toArray(), rot: [0, Z.yaw + (R() - 0.5) * 0.05, 0], scale: [0.97 + R() * 0.06, 1, 1], color: albedo(swatchOf(p, ci)), jitter: (R() - 0.5) * 0.03 });
+    }
+    const st = stacks.add(key, items, s => productCard(ctx, p, { current: s.currentHex || s.ci }));
+    st.ci = ci;
+    const c = new THREE.Vector3(lx, 0, lz).applyMatrix4(Mz);
+    shadows.add(c.x, top + 0.002, c.z, STACK.w + 0.08, STACK.d + 0.08, 0.5, Z.yaw);
+  });
+  times.shelves = performance.now() - t; t = performance.now();
+
+  // ---------------------------------------------------------------------------------------------
+  // Window mannequins (no podium: they stand on the shop floor just inside the left window)
+  // ---------------------------------------------------------------------------------------------
+  const WZ = layout.ZONES.windowMannequins;
+  const figs = await buildFigures(ctx, { root, figs: windowPlan(ctx), staticBatch, shadows, U });
+  for (const it of WZ.items) ctx.colliders.addBox(it.cx, it.cz, it.w, it.d);
   times.figures = performance.now() - t; times.fig = figs.times; t = performance.now();
 
-  // static merged meshes
+  // ---------------------------------------------------------------------------------------------
+  // Static merged meshes
+  // ---------------------------------------------------------------------------------------------
   const statMats = new Map();
-  const matFor = (key, g) => {
+  const matFor = (key) => {
     if (statMats.has(key)) return statMats.get(key);
-    let m;
-    if (key === 'led') m = ledMaterial('#ffd9a8', 3.2);
-    else if (key === 'glow') m = glowMaterial(glowTexture(), '#ffc98f', 0.55, 'apparelDisplay:ledGlow');
-    else if (key === 'signs') m = signs.material;
-    else if (key === 'charcoal') m = mats.get('oak-smoked', { color: '#2e2a27' });   // IMAANS black joinery (the rails' bays)
-    else if (key === 'plume') m = ctx.tier === 'low' ? turnable(mats.fabric('boucle', '#ffffff', { flat: true }), U, { before: rimPatch }) : turnable(mats.fabric('boucle', '#ffffff'), U);
-    else { m = mats.get(key); if (g && g.color) { const c = m.clone(); c.vertexColors = true; if (m.onBeforeCompile) c.onBeforeCompile = m.onBeforeCompile; m = c; } }
+    const m = key === 'led' ? ledMaterial('#ffd6a0', 3.2)
+      : key === 'glow' ? glowMaterial(makeGlow(), '#ffcc94', 0.36, 'apparelDisplay:ledGlow')
+      : key === 'wood' ? mats.get('oak-smoked', { color: layout.PALETTE.shopEspresso })
+      : mats.get(key);
     statMats.set(key, m);
     return m;
   };
-  const built = staticBatch.build(root, matFor); times.staticBuild = performance.now() - t; times.staticKeys = staticBatch.times;
-  for (const { key, mesh } of built) {
+  for (const { key, mesh } of staticBatch.build(root, matFor)) {
     if (key === 'glow') { mesh.castShadow = false; mesh.receiveShadow = false; mesh.renderOrder = 2; }
     if (key === 'led') { mesh.castShadow = false; mesh.receiveShadow = false; }
-    if (key === 'signs') {
-      // the printed signs as an InstancedMesh of one → the shared print program (apparelRails labels / tags)
-      const inst = one(mesh.geometry, mesh.material, 'ad:signs'); inst.castShadow = false; inst.receiveShadow = true;
-      root.remove(mesh); root.add(inst);
-    }
   }
-  stacks.build(root, 'ad:stack'); times.stacksBuild = performance.now() - t;
-  shadows.build(root, 'ad:contactShadows'); times.shadowsBuild = performance.now() - t;
+  stacks.build(root, 'ad:stack');
+  shadows.build(root, 'ad:contactShadows');
   times.merge = performance.now() - t;
-  // freeze everything static (turning uses uniforms; the dress form group rotates itself)
+  // freeze everything static (turning a figure is a uniform)
   root.updateMatrixWorld(true);
-  root.traverse(o => { if (o.name !== 'ad:dressform' && !(o.parent && o.parent.name === 'ad:dressform')) o.matrixAutoUpdate = false; });
-  ctx.onUpdate((dt, time) => {
-    figs.update(dt, time);
-    for (const r of figs.records) if (r.group && r.turn) r.group.updateMatrixWorld(true);
-  });
+  root.traverse(o => { o.matrixAutoUpdate = false; });
+  ctx.onUpdate((dt, time) => figs.update(dt, time));
   times.total = performance.now() - t0;
-  window.__apparelDisplay = { figs, stacks, times, root, copy, looks: figs.looks, turn: i => figs.turn(figs.records[i]) };
+  window.__apparelDisplay = { figs, stacks, times, root, looks: figs.looks, turn: i => figs.turn(figs.records[i]) };
   // dev: ?adTap=N turns figure N at ready (for interaction screenshots)
   if (ctx.params.has('adTap')) ctx.events.addEventListener('ready', () => { const i = +ctx.params.get('adTap'); if (figs.records[i]) figs.turn(figs.records[i]); });
   // dev: ?adAngle=i:rad freezes figure i mid-turn (deterministic interaction screenshots)
-  if (ctx.params.has('adAngle')) { const [i, a] = ctx.params.get('adAngle').split(':').map(Number); const r = figs.records[i]; if (r) { if (r.group) r.group.rotation.y = r.rot + a; else U.value[r.slot].z = a; } }
+  if (ctx.params.has('adAngle')) { const [i, a] = ctx.params.get('adAngle').split(':').map(Number); const r = figs.records[i]; if (r) U.value[r.slot].z = a; }
 }
 
-/** ['Denim & Trousers', 'Knitwear'] → 'Denim, Trousers & Knitwear' (no repeated words). */
-function listLabel(labels) {
-  const w = [];
-  for (const l of labels.filter(Boolean)) for (const x of String(l).split(/\s*&\s*|\s*,\s*/)) if (x && !w.includes(x)) w.push(x);
-  return w.length > 1 ? w.slice(0, -1).join(', ') + ' & ' + w[w.length - 1] : (w[0] || '');
-}
-
-let _glowTex = null;
-function glowTexture() {
-  if (!_glowTex) {
-    const c = document.createElement('canvas'); c.width = 128; c.height = 4;
-    const g = c.getContext('2d'); const grd = g.createLinearGradient(0, 0, 128, 0);
-    // additive blend: only rgb matters (no getImageData — a sync GPU readback stalls the boot)
-    grd.addColorStop(0, 'rgb(255,255,255)'); grd.addColorStop(0.12, 'rgb(190,190,190)'); grd.addColorStop(0.4, 'rgb(64,64,64)'); grd.addColorStop(1, 'rgb(0,0,0)');
-    g.fillStyle = grd; g.fillRect(0, 0, 128, 4);
-    _glowTex = new THREE.CanvasTexture(c); _glowTex.colorSpace = THREE.SRGBColorSpace; _glowTex.wrapS = _glowTex.wrapT = THREE.ClampToEdgeWrapping;
-  }
-  return _glowTex;
+/** Additive LED wash in the local plane z = const facing +z (glow texture's left half, bright at the top). */
+function glowQuad(x0, x1, y0, y1, z) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute([x0, y0, z, x1, y0, z, x1, y1, z, x0, y1, z], 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0.5, 0, 0.5, 1, 0, 1], 2));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], 3));
+  g.setIndex([0, 1, 2, 0, 2, 3]);
+  return g;
 }

@@ -1,6 +1,6 @@
 // Cross-module registries. Builders register; the ui/controls + magic modules consume.
 import * as THREE from 'three';
-import { ROOM, PLAYER_RADIUS } from './layout.js';
+import { PLAYER_RADIUS, clampWalk } from './layout.js';
 
 export function createColliders() {
   const boxes = [];   // {cx, cz, hw, hd, cos, sin}
@@ -10,7 +10,8 @@ export function createColliders() {
     /** Floor-standing rectangular obstacle. w along local x, d along local z, rotY radians. */
     addBox(cx, cz, w, d, rotY = 0) { boxes.push({ cx, cz, hw: w / 2, hd: d / 2, cos: Math.cos(rotY), sin: Math.sin(rotY) }); },
     addCircle(x, z, r) { circles.push({ x, z, r }); },
-    /** Push a point (THREE.Vector3, uses x/z) out of every obstacle + keep inside the room. Mutates p. */
+    /** Push a point (THREE.Vector3, uses x/z) out of every obstacle + keep it on the walkable area
+     *  (layout.WALK: shop floor, door opening, pavement — walls and glass collide). Mutates p. */
     resolve(p, radius = PLAYER_RADIUS) {
       for (let iter = 0; iter < 3; iter++) {
         for (const c of circles) {
@@ -33,8 +34,7 @@ export function createColliders() {
           }
         }
       }
-      p.x = Math.max(ROOM.minX + 0.35 + radius, Math.min(ROOM.maxX - 0.35 - radius, p.x));
-      p.z = Math.max(ROOM.minZ + 0.6 + radius, Math.min(ROOM.maxZ - 0.35 - radius, p.z));
+      clampWalk(p, radius);
       return p;
     },
   };

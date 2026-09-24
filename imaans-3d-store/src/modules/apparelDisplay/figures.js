@@ -1,45 +1,56 @@
 // apparelDisplay — dressed mannequins (baked offline by tools/apparelDisplay-bake.mjs into
-// assets/models/mannequin-*.glb), their stands, the dress form, and the "turn on its base" tap.
+// assets/models/mannequin-*.glb), their stands, and the "turn on its base" tap.
 //
-// Every look is real catalogue product: each garment part of a figure is matched to a product of the
-// right kind (LOOKS: kind + preferred tags / name words, the silhouette it must have), recoloured with the
-// product colour closest to its styled colour, and the "Complete the look" card lists those products (+ a
-// matching shoe / accessory) with a total; "Add the look to bag" puts them all in the bag.
+// Every look is real catalogue product: a figure may carry a LEAD product (the window mannequins wear the
+// clothes layout.splitClothes gives them — figureFor() picks the figure whose silhouette fits it);
+// every other garment part is matched to a product of the right kind (LOOKS: kind + preferred tags / name
+// words, the silhouette it must have). Parts wear their product's colour and fabric (fabricOf: the product's
+// own tags), and the "Complete the look" card lists those products (+ a matching shoe / accessory) with a
+// total; "Add the look to bag" puts them all in the bag.
 //
-// Every figure's parts are merged per material and per zone (plinth / windows) into a handful of meshes.
-// A tiny vertex patch (util.turnable) rotates each figure about its own stand rod using a per-vertex
-// `aFig` index and one shared uniform array, so turning a mannequin costs no draw calls or re-uploads.
-// Shader programs: garments + shoes share ONE turnable fabric program, bodies + trims ONE plain one; the
-// dress form's bust uses the shared brushed-metal program (library-map free normal + roughness).
+// Every figure's parts are merged per material and per zone into a handful of meshes. A tiny vertex patch
+// (util.turnable) rotates each figure about its own stand rod using a per-vertex `aFig` index and one shared
+// uniform array, so turning a mannequin costs no draw calls or re-uploads. Shader programs: garments + shoes
+// share ONE turnable fabric program, bodies + trims ONE plain one.
 import * as THREE from 'three';
 import { Batch, turnable, createTurnUniform, lathe, cyl, mat4, DEG, clean } from './util.js';
 import { lineOf, pickLike, lightToDark, swatchOf, firstInStockSize, promoCopy, rimPatch } from '../apparelRails/imaans.js';
 
-// Look recipes. parts: figure part → [catalogue kind, preferred words, silhouettes it may have (lineOf)].
-// '=part' re-uses another part's product (the coat's belt knot). shoes: the figure's visible shoes;
-// extra: products that complete the card (not modelled).
+// Look recipes of the window's two baked figures. parts: figure part → [catalogue kind, preferred words,
+// silhouettes it may have (lineOf)]. shoes: the figure's visible shoes; extra: products that complete the card
+// (not modelled). tools/perf-models.mjs ships + boot-prefetches only the figure ids named in this module, so no
+// other figure id may appear here as a string. The fitted dress figure wears dress-like leads, the street figure
+// (hooded jacket, cargos, sneakers) any other piece.
 const LOOKS = {
-  slip: { parts: { dress: ['dress', ['slip', 'satin', 'silk', 'maxi'], ['slip', 'midi']], jacket: ['cardigan', ['cardigans', 'cashmere'], ['knit', 'cable']] },
-    extra: [['heel', ['court', 'pointed', 'block heel', 'heels']]], burst: '#ffd58a' },
-  trench: { parts: { trench: ['coat', ['overcoat', 'coats'], ['coat']], knit: ['knit', ['merino', 'jumpers', 'cable'], ['knit', 'cable']], trousers: ['trousers', ['tailoring', 'wide'], ['trouser']] },
-    extra: [['mule', ['mules', 'slip-on', 'leather']]], burst: '#ffd58a' },
+  knitdress: { parts: { dress: ['dress', ['knitwear', 'fitted', 'ribbed'], null], belt: ['belt', ['leather', 'belts'], null] },
+    extra: [['boot', ['ankle', 'heeled', 'boots']]], burst: '#ffd58a' },
   street: { parts: { hoodie: ['jacket', ['hooded', 'quilted', 'layering'], ['puffer', 'shirt', 'knit']], cargos: ['trousers', ['linen', 'co-ord', 'chino'], ['trouser']] },
     shoes: ['sneaker', ['canvas', 'sneakers', 'casual']], burst: '#c9a8ff' },
-  wrap: { parts: { coat: ['coat', ['coats', 'outerwear'], ['coat']], knot: '=coat', knit: ['knit', ['cable', 'jumpers'], ['knit', 'cable']], trousers: ['trousers', ['chino', 'trousers'], ['trouser']] },
-    extra: [['boot', ['chelsea', 'ankle boot', 'boots']]], burst: '#ff9ec7' },
-  suit: { parts: { blazer: ['blazer', ['blazers', 'tailoring'], ['blazer']], knit: ['top', ['breton', 'tops', 'striped'], ['knit', 'shirt']], trousers: ['trousers', ['tailoring', 'work'], ['trouser']] },
-    shoes: ['sneaker', ['trainers', 'runner', 'sneakers']], burst: '#8ff3ff' },
-  knitdress: { parts: { dress: ['dress', ['knitwear', 'fitted', 'ribbed'], ['midi', 'slip']], belt: ['belt', ['leather', 'belts'], null] },
-    extra: [['boot', ['ankle', 'heeled', 'boots']]], burst: '#ffd58a' },
-  dressform: { parts: { corset: ['waistcoat', ['waistcoats', 'tailoring', 'fitted'], ['blazer', 'shirt', 'camisole']] },
-    extra: [['necklace', ['layering', 'necklaces', 'gold']]], burst: '#ff9ec7' },
 };
+const DRESSY = /\b(dress|dresses|skirt|skirts|camisole|jumpsuit)\b/;
+/** {id, part, shoe}: the figure (not yet in `taken`) that wears product p, the part it wears it on, modelled shoes. */
+export function figureFor(p, taken = new Set()) {
+  const dress = [['knitdress', 'dress'], ['street', 'hoodie']];
+  const order = DRESSY.test(((p.tags || []).join(' ') + ' ' + (p.name || '')).toLowerCase()) ? dress : dress.slice().reverse();
+  const [id, part] = order.find(([f]) => !taken.has(f)) || order[0];
+  taken.add(id);
+  return { id, part, shoe: !!LOOKS[id].shoes };
+}
+// Garment fabric from the product's own tags / name words (first match); null keeps the figure's baked fabric.
+const FABRIC_WORDS = [['denim', 'denim'], ['jeans', 'denim'], ['jean', 'denim'], ['linen', 'linen'], ['satin', 'satin'], ['silk', 'silk'],
+  ['corduroy', 'corduroy'], ['cable', 'cable'], ['quilted', 'puffer'], ['knitwear', 'knit'], ['wool', 'wool'], ['tailoring', 'wool'], ['cotton', 'cotton']];
+function fabricOf(p) {
+  const W = new Set([...(p.tags || []), ...String(p.name || '').toLowerCase().split(/[\s-]+/)]);
+  const hit = FABRIC_WORDS.find(([w]) => W.has(w));
+  return hit ? hit[1] : null;
+}
 
 /**
- * figs: [{id, zone, pos:[x,y,z], rot (deg), shoe?:variant}] ; dressForm: {zone, pos, rot, scale}
+ * figs: [{id, zone, pos:[x,y,z], rot (deg), shoe?, lead?: product, part?: the part the lead is worn on,
+ *         height?: m (scales the figure), centre?: pos is the footprint centre (not the stand rod)}]
  * Returns { update(dt,t), turn(i), records, proxies, looks }.
  */
-export async function buildFigures(ctx, { root, figs, dressForm, staticBatch, shadows, zoneBatches = new Map(), U = createTurnUniform() }) {
+export async function buildFigures(ctx, { root, figs, staticBatch, shadows, zoneBatches = new Map(), U = createTurnUniform() }) {
   const { mats, catalog } = ctx;
   const T = {}; let tt = performance.now(); const lap = k => { const n = performance.now(); T[k] = Math.round(n - tt); tt = n; };
   const batchOf = zone => { if (!zoneBatches.has(zone)) zoneBatches.set(zone, new Batch()); return zoneBatches.get(zone); };
@@ -66,10 +77,10 @@ export async function buildFigures(ctx, { root, figs, dressForm, staticBatch, sh
     return m;
   };
 
-  // --- the looks: products per figure part (no product used twice while an unused match exists). Colours:
-  //     the lightest colourway of each piece (a bright, spring-like shop floor); a product worn twice
-  //     shows its next colour.
-  const used = new Set(), shownColours = new Map();
+  // --- the looks: the lead product on its part, then products per figure part (no product used twice while
+  //     an unused match exists). Colours: the lightest colourway of each piece (a bright, spring-like shop
+  //     floor); a product worn twice shows its next colour.
+  const used = new Set(figs.filter(f => f.lead).map(f => f.lead.id)), shownColours = new Map();
   const colourFor = (p) => {
     const seen = shownColours.get(p.id) || new Set();
     const order = lightToDark(p), ci = order.find(i => !seen.has(i)) ?? order[0] ?? 0;
@@ -77,19 +88,21 @@ export async function buildFigures(ctx, { root, figs, dressForm, staticBatch, sh
     return ci;
   };
   const lookOf = {};
-  for (const f of [...figs, { id: 'dressform' }]) {
+  for (const f of figs) {
     const L = LOOKS[f.id]; if (!L) continue;
     const parts = {}, items = [];
     for (const [part, spec] of Object.entries(L.parts)) {
-      if (typeof spec === 'string') continue;
+      if (f.lead && part === f.part) { parts[part] = { p: f.lead, ci: 0 }; continue; }   // the lead in its hero colour
       const [kind, prefer, lines] = spec;
       const p = pickLike(catalog, kind, { prefer, used, filter: lines ? (q => lines.includes(lineOf(q))) : null });
       if (p) parts[part] = { p };
     }
-    for (const [part, spec] of Object.entries(L.parts)) if (typeof spec === 'string' && parts[spec.slice(1)]) parts[part] = parts[spec.slice(1)];
     if (L.shoes) { const p = pickLike(catalog, L.shoes[0], { prefer: L.shoes[1], used }); if (p) parts.__shoes = { p, ci: 0 }; }
     for (const [kind, prefer] of L.extra || []) { const p = pickLike(catalog, kind, { prefer, used }); if (p) items.push({ p, ci: 0 }); }
-    lookOf[f.id] = { parts, extra: items, burst: L.burst };
+    // the lead piece first on the card (it names the look)
+    const lead = f.lead && parts[f.part];
+    if (lead) delete parts[f.part];
+    lookOf[f.id] = { parts: lead ? { [f.part]: lead, ...parts } : parts, extra: items, burst: L.burst };
   }
 
   // --- shoes (the 'shoe' GLB; the footwear LOD1 geometry when present — same UV layout / space), recoloured
@@ -123,10 +136,17 @@ export async function buildFigures(ctx, { root, figs, dressForm, staticBatch, sh
     const g = loads[i]; if (!g) return;
     const slot = records.length + 1;
     const look = lookOf[f.id] || { parts: {}, extra: [] };
-    const PLATE = 0.008, place = mat4([f.pos[0], f.pos[1] + PLATE, f.pos[2]], [0, f.rot * DEG, 0]);
     let meta = {};
     g.scene.updateMatrixWorld(true);
     g.scene.traverse(o => { if (o.userData && o.userData.id) meta = o.userData; });
+    const bb = meta.bbox || [-0.25, 0, -0.25, 0.25, 1.8, 0.25];
+    const S = f.height ? f.height / bb[4] : 1, rot = f.rot * DEG;
+    let px = f.pos[0], pz = f.pos[2];
+    if (f.centre) {   // pos = footprint centre: put the figure's bbox centre there (the stand rod sits off-centre)
+      const lx = (bb[0] + bb[3]) / 2 * S, lz = (bb[2] + bb[5]) / 2 * S, c = Math.cos(rot), sn = Math.sin(rot);
+      px -= lx * c + lz * sn; pz -= -lx * sn + lz * c;
+    }
+    const PLATE = 0.008, place = mat4([px, f.pos[1] + PLATE, pz], [0, rot, 0], S);
     const batch = batchOf(f.zone);
     let shoeKey = null;
     g.scene.traverse(o => {
@@ -135,15 +155,16 @@ export async function buildFigures(ctx, { root, figs, dressForm, staticBatch, sh
       const geo = toFloat(o.geometry, new THREE.Matrix4().multiplyMatrices(place, o.matrixWorld));
       // colour × baked AO: body finishes carry their tint; garment parts wear their product's colour
       const lp = look.parts[e.part];
-      if (lp && lp.ci === undefined) lp.ci = colourFor(lp.p, e.color);
+      if (lp && lp.ci === undefined) lp.ci = colourFor(lp.p);
+      const mk = (lp && !BODY_DEF[e.mat] && fabricOf(lp.p)) || e.mat;
       const hex = BODY_DEF[e.mat] ? (e.mat === 'trimDark' ? (e.color || '#222222') : '#ffffff') : lp ? swatchOf(lp.p, lp.ci) : (e.color || '#ffffff');
       colTmp.set(hex);
       if (lp) liftDark(colTmp);
       const ao = geo.attributes.color, n = ao.count, col = new Float32Array(n * 3);
       for (let v = 0; v < n; v++) { const a = ao.getX(v); col[v * 3] = colTmp.r * a; col[v * 3 + 1] = colTmp.g * a; col[v * 3 + 2] = colTmp.b * a; }
       geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      batch.add(f.zone + ':' + e.mat, geo, { fig: slot, color: col });
-      if (!shoeKey && (e.part === 'trousers' || e.part === 'cargos')) shoeKey = e.mat;
+      batch.add(f.zone + ':' + mk, geo, { fig: slot, color: col });
+      if (!shoeKey && (e.part === 'trousers' || e.part === 'cargos')) shoeKey = mk;
     });
     // shoes: into the figure's trouser fabric mesh (same program, no extra draw call)
     if (f.shoe && shoeGeo && meta.shoes) {
@@ -155,11 +176,10 @@ export async function buildFigures(ctx, { root, figs, dressForm, staticBatch, sh
       }
     }
     // stand: brass base plate + rod into the calf (rotationally symmetric → static)
-    const by = f.pos[1];
-    staticBatch.add('brass', standBase, { matrix: mat4([f.pos[0], by, f.pos[2]]) });
-    staticBatch.add('brass', cyl(0.0062, 0.0062, (meta.rodTop || 0.29) - 0.004, 10, true), { matrix: mat4([f.pos[0], by + 0.008 + ((meta.rodTop || 0.29) - 0.004) / 2, f.pos[2]]) });
-    shadows.add(f.pos[0], by + 0.002, f.pos[2], 0.46, 0.46, 0.5);
-    const bb = meta.bbox || [-0.25, 0, -0.25, 0.25, 1.8, 0.25];
+    const by = f.pos[1], rodH = (meta.rodTop || 0.29) * S - 0.004;
+    staticBatch.add('brass', standBase, { matrix: mat4([px, by, pz]) });
+    staticBatch.add('brass', cyl(0.0062, 0.0062, rodH, 10, true), { matrix: mat4([px, by + 0.008 + rodH / 2, pz]) });
+    shadows.add(px, by + 0.002, pz, 0.46, 0.46, 0.5);
     const cx = (bb[0] + bb[3]) / 2, cz = (bb[2] + bb[5]) / 2;
     const c = new THREE.Vector3(cx, 0, cz).applyMatrix4(place);
     shadows.add(c.x, by + 0.002, c.z, 0.9, 0.9, 0.36);
@@ -167,17 +187,11 @@ export async function buildFigures(ctx, { root, figs, dressForm, staticBatch, sh
       const a = new THREE.Vector3(hx, 0, hz).applyMatrix4(place), b = new THREE.Vector3(tx, 0, tz).applyMatrix4(place);
       shadows.add((a.x + b.x) / 2, by + 0.0025, (a.z + b.z) / 2, 0.13, 0.36, 0.55, Math.atan2(b.x - a.x, b.z - a.z));
     }
-    records.push({ slot, id: f.id, zone: f.zone, pivot: new THREE.Vector3(f.pos[0], by, f.pos[2]), rot: f.rot * DEG,
-      bbox: bb, height: bb[4], centre: c, place, turn: null, group: null });
+    records.push({ slot, id: f.id, zone: f.zone, pivot: new THREE.Vector3(px, by, pz), rot,
+      bbox: bb, height: bb[4] * S, centre: c, place, turn: null });
   });
 
   lap('process');
-  // --- the dress form (the 'corset' GLB bust: turns by rotating its own group)
-  if (dressForm) {
-    const lp = lookOf.dressform && lookOf.dressform.parts.corset;
-    const df = await buildDressForm(ctx, dressForm, staticBatch, shadows, lp);
-    if (df) { df.slot = records.length + 1; records.push(df); root.add(df.group); }
-  }
 
   // --- build merged meshes per zone
   const meshes = [];
@@ -189,7 +203,7 @@ export async function buildFigures(ctx, { root, figs, dressForm, staticBatch, sh
   const proxies = records.map(r => {
     const o = new THREE.Object3D();
     o.name = 'ad:proxy:' + r.id;
-    const cx = r.centre.x, cz = r.centre.z, y0 = r.pivot.y, y1 = r.pivot.y + (r.height || 1.8), rad = r.id === 'dressform' ? 0.24 : 0.27;
+    const cx = r.centre.x, cz = r.centre.z, y0 = r.pivot.y, y1 = r.pivot.y + (r.height || 1.8), rad = 0.27;
     o.userData.fig = r;
     o.raycast = function (ray, out) {
       const R = ray.ray, ox = R.origin.x - cx, oz = R.origin.z - cz, dx = R.direction.x, dz = R.direction.z;
@@ -222,9 +236,8 @@ export async function buildFigures(ctx, { root, figs, dressForm, staticBatch, sh
     for (const r of records) {
       if (!r.turn) continue;
       const u = Math.min(1, (t - r.turn.t0) / DUR), a = Math.PI * 2 * ease(u);
-      if (r.group) r.group.rotation.y = r.rot + a;
-      else U.value[r.slot].z = a;
-      if (u >= 1) { r.turn = null; active--; if (r.group) r.group.rotation.y = r.rot; else U.value[r.slot].z = 0; ctx.requestShadowUpdate(); }
+      U.value[r.slot].z = a;
+      if (u >= 1) { r.turn = null; active--; U.value[r.slot].z = 0; ctx.requestShadowUpdate(); }
     }
   }
 
@@ -259,7 +272,7 @@ function lookCard(ctx, r, items, look, { turn, promo, colour = '' }) {
   const total = items.reduce((a, it) => a + cat.priceOf(it.p), 0);
   const hero = items[0] && items[0].p;
   const info = {
-    tag: r.zone === 'plinth' && promo.title ? promo.title + ' · Complete the look' : 'Complete the look',
+    tag: promo.title ? promo.title + ' · Complete the look' : 'Complete the look',
     // a look, never one product: "The Silk Maxi Dress look", priced as the labelled total of its pieces
     title: hero ? `The ${hero.name} look${colour ? ' in ' + colour : ''}` : 'The look',
     subtitle: items.map(it => `${it.p.name} ${cat.formatPrice(cat.priceOf(it.p))}`).join(' · '),
@@ -375,59 +388,4 @@ function mirrorZ(geo) {
   const ix = g.index;
   for (let i = 0; i < ix.count; i += 3) { const a = ix.getX(i + 1); ix.setX(i + 1, ix.getX(i + 2)); ix.setX(i + 2, a); }
   return g;
-}
-
-// ------------------------------------------------------------------------------------------------
-// Dress form: the 'corset' GLB is a small display bust wearing a fitted top. Its dark base plate is
-// stripped, the bust is mounted life-size on a turned walnut + brass stand, and it wears the look's product
-// colour: its own normal + roughness maps on a plain standard material (no colour map → the shared
-// brushed-metal program; derivative tangents, so the baked tangents are dropped).
-// ------------------------------------------------------------------------------------------------
-async function buildDressForm(ctx, o, staticBatch, shadows, lp) {
-  let parts;
-  try { parts = await ctx.assets.flatten('corset'); } catch (e) { console.warn('[apparelDisplay] corset missing', e && e.message); return null; }
-  const S = o.scale || 11;
-  const group = new THREE.Group(); group.name = 'ad:dressform';
-  const bottomY = o.pos[1] + (o.standH || 0.64);
-  if (lp && lp.ci === undefined) lp.ci = 0;
-  const tint = new THREE.Color(lp ? swatchOf(lp.p, lp.ci) : '#2a2224'); liftDark(tint);
-  for (const p of parts) {
-    const g = p.geometry.clone();
-    // drop the base plate: triangles entirely below y = 0.0023 (model units)
-    const P = g.attributes.position, ix = g.index, keep = [];
-    for (let i = 0; i < ix.count; i += 3) {
-      const a = ix.getX(i), b = ix.getX(i + 1), c = ix.getX(i + 2);
-      if (Math.max(P.getY(a), P.getY(b), P.getY(c)) < 0.0023) continue;
-      keep.push(a, b, c);
-    }
-    g.setIndex(keep);
-    g.translate(-0.00007, -0.0022, -0.00446);
-    g.scale(S, S, S);
-    if (g.attributes.tangent) g.deleteAttribute('tangent');
-    g.computeBoundingSphere();
-    const src = p.material || {};
-    const mat = new THREE.MeshStandardMaterial({ color: tint, roughness: 1, metalness: 0,
-      normalMap: src.normalMap || null, roughnessMap: src.roughnessMap || null });
-    if (src.normalMap) { mat.normalScale.copy(src.normalScale || new THREE.Vector2(1, 1)); mat.normalScale.y = -Math.abs(mat.normalScale.y); }
-    mat.name = 'apparelDisplay:dressform';
-    const m = new THREE.Mesh(g, mat);
-    m.castShadow = true; m.receiveShadow = true; m.name = 'ad:corset';
-    m.position.y = bottomY - o.pos[1];
-    group.add(m);
-  }
-  group.position.set(o.pos[0], o.pos[1], o.pos[2]);
-  group.rotation.y = o.rot * DEG;
-  // stand: walnut dome base + brass pole + walnut collar under the bust (all round → static)
-  const x = o.pos[0], y = o.pos[1], z = o.pos[2];
-  const base = lathe([[0, 0.055], [0.05, 0.052], [0.12, 0.034], [0.19, 0.016], [0.205, 0.008], [0.2, 0]], 36);
-  base.computeVertexNormals();
-  staticBatch.add('walnut', base, { matrix: mat4([x, y, z]) });
-  staticBatch.add('brass', cyl(0.011, 0.011, bottomY - y - 0.05, 14, true), { matrix: mat4([x, y + 0.05 + (bottomY - y - 0.05) / 2, z]) });
-  const collar = lathe([[0.011, 0], [0.028, 0.004], [0.034, 0.02], [0.03, 0.03], [0.014, 0.035]], 20); collar.computeVertexNormals();
-  staticBatch.add('brass', collar, { matrix: mat4([x, bottomY - 0.035, z]) });
-  const cap = lathe([[0.0, 0.0], [0.1, 0.0], [0.104, 0.006], [0.098, 0.012], [0, 0.013]], 32); cap.computeVertexNormals();
-  staticBatch.add('walnut', cap, { matrix: mat4([x, bottomY - 0.004, z]) });
-  shadows.add(x, y + 0.002, z, 0.55, 0.55, 0.55);
-  const centre = new THREE.Vector3(x, 0, z);
-  return { id: 'dressform', zone: o.zone, pivot: new THREE.Vector3(x, y, z), rot: o.rot * DEG, bbox: [-0.2, 0, -0.2, 0.2, 1.3, 0.2], height: bottomY - y + 0.058 * S, centre, group, turn: null };
 }

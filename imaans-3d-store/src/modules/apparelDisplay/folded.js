@@ -1,10 +1,9 @@
-// apparelDisplay — folded garments (knits, tees, jeans) and hats. Unit-sized geometry meant for
-// InstancedMesh (instance scale = real w/h/d). Origin = bottom centre, width along x, depth along z,
+// apparelDisplay — folded garments (knits, tees, jeans, trousers) for the folded shelves. Geometry at its
+// real size, meant for InstancedMesh. Origin = bottom centre, width along x, depth along z,
 // the folded edge faces +z. UVs are metres at unit scale: v runs front→back so knit ribs / denim twill
 // read the right way on the top face.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { lathe } from './util.js';
 
 /**
  * Folded garment slab: a rounded box (front edge = full roll), gently domed top, fold bulge at the front,
@@ -106,54 +105,4 @@ function collarGeo(w, h, d) {
   const n = g.attributes.normal; let up = 0; for (let i = 0; i < n.count; i++) up += n.getY(i);
   if (up < 0) { const ix = g.index; for (let i = 0; i < ix.count; i += 3) { const t = ix.getX(i + 1); ix.setX(i + 1, ix.getX(i + 2)); ix.setX(i + 2, t); } g.computeVertexNormals(); }
   return g;
-}
-
-/** Baseball cap: six-panel crown dome + curved brim + top button. Brim points +z. */
-export function capGeo() {
-  const crown = lathe([[0.0, 0.098], [0.02, 0.097], [0.045, 0.09], [0.07, 0.072], [0.088, 0.045], [0.097, 0.018], [0.1, 0.0], [0.096, 0.0]], 18);
-  crown.scale(1, 1, 1.12); crown.computeVertexNormals();
-  // brim: a curved elliptical plate with a real thickness (separate top / bottom sheets)
-  const seg = 10, rows = 4, pos = [], idx = [], uv = [];
-  for (const [dy, flip] of [[0, false], [-0.004, true]]) {
-    const base = pos.length / 3;
-    for (let j = 0; j <= rows; j++) for (let i = 0; i <= seg; i++) {
-      const a = Math.PI * (i / seg), t = j / rows;
-      const R = 0.098 + t * 0.075;
-      const x = Math.cos(a) * (0.098 * (1 - t) + 0.085 * t) * (1 - 0.15 * t), z = Math.sin(a) * R * 1.05;
-      const y = 0.006 - t * t * 0.02 - Math.pow(Math.cos(a), 2) * t * 0.012 + dy;
-      pos.push(x, y, z); uv.push(x, z);
-    }
-    for (let j = 0; j < rows; j++) for (let i = 0; i < seg; i++) {
-      const a = base + j * (seg + 1) + i, b = a + 1, c = a + seg + 1, e = c + 1;
-      if (flip) idx.push(a, b, c, b, e, c); else idx.push(a, c, b, b, c, e);
-    }
-  }
-  const brim = new THREE.BufferGeometry();
-  brim.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  brim.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  brim.setIndex(idx); brim.computeVertexNormals();
-  // top sheet must face up
-  { const n = brim.attributes.normal; let up = 0; for (let i = 0; i < (rows + 1) * (seg + 1); i++) up += n.getY(i);
-    if (up < 0) { const ix = brim.index; for (let i = 0; i < ix.count; i += 3) { const t = ix.getX(i + 1); ix.setX(i + 1, ix.getX(i + 2)); ix.setX(i + 2, t); } brim.computeVertexNormals(); } }
-  const button = new THREE.SphereGeometry(0.008, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2); button.translate(0, 0.096, 0);
-  return mergeGeometries([crown, brim, stripUV(button)].map(g => keepPNU(g)), false);
-}
-/** Bucket hat: flat crown, tapered sides, down-sloping brim. */
-export function bucketGeo() {
-  const g = lathe([[0, 0.085], [0.072, 0.085], [0.082, 0.08], [0.09, 0.05], [0.096, 0.012], [0.104, 0.004], [0.145, -0.024], [0.158, -0.034], [0.156, -0.037], [0.1, -0.006], [0.09, 0.0]], 22);
-  g.computeVertexNormals();
-  return keepPNU(g);
-}
-function stripUV(g) { if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2)); return g; }
-function keepPNU(g) {
-  for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k);
-  if (!g.index) { const n = g.attributes.position.count, a = []; for (let i = 0; i < n; i++) a.push(i); g.setIndex(a); }
-  return g;
-}
-
-/** Hat box (round, with a lid overhang), unit radius/height → instance scale. */
-export function hatBoxGeo() {
-  const g = lathe([[0, 0], [0.97, 0], [0.97, 0.82], [0.985, 0.82], [1.0, 0.83], [1.0, 0.99], [0.985, 1.0], [0, 1.0]], 22);
-  g.computeVertexNormals();
-  return keepPNU(g);
 }

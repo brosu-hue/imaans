@@ -1,7 +1,6 @@
-// footwear — the Shopify sneaker for EVERY sneaker in the salon (wall stock, kicked-off pair, open box AND
-// the three hero shoes on the stage): one material / one shader program.
-//   • wall + salon stock: decimated LODs (tools/footwear-lod.mjs), right + mirrored-left InstancedMeshes;
-//   • heroes: the full 9k-tri model as ONE InstancedMesh (3 instances), far LOD = the decimated mesh.
+// footwear — the Shopify sneaker for EVERY sneaker in the shop (shelves, step, glass island): one material /
+// one shader program. Decimated LODs (tools/footwear-lod.mjs) as right + mirrored-left InstancedMeshes; the full
+// model only lends its material (normal / ORM maps share the LODs' UV layout).
 // Colour: shoe-lod.glb carries a 1024² atlas of 4 generic colourways (solid · onBlack · onWhite · tonal)
 // whose ALPHA is a tint mask; each instance picks a tile (aTile) and its instanceColor = the catalogue
 // colour's swatch, painted onto the masked panels. So any product colour from the site shows up right.
@@ -68,7 +67,7 @@ function mirrorZ(geo) {
   return g;
 }
 
-/** Load everything the sneaker needs. Returns { lod:{r1,r2,l1,l2}, full, material }. */
+/** Load everything the sneaker needs. Returns { lod:{r1,r2,l1,l2}, material }. */
 export async function loadSneakers(ctx) {
   const [parts, lodG] = await Promise.all([ctx.assets.flatten('shoe'), ctx.assets.gltf('shoe-lod')]);
   let lod1 = null, lod2 = null, atlas = null;
@@ -79,9 +78,7 @@ export async function loadSneakers(ctx) {
   });
   const base = parts[0].material;
   const material = atlasMaterial(base, atlas, ctx.q);
-  const full = parts[0].geometry.clone();
-  for (const k of Object.keys(full.attributes)) if (!['position', 'normal', 'uv'].includes(k)) full.deleteAttribute(k);
-  return { lod: { r1: lod1, r2: lod2, l1: mirrorZ(lod1), l2: mirrorZ(lod2) }, full, material };
+  return { lod: { r1: lod1, r2: lod2, l1: mirrorZ(lod1), l2: mirrorZ(lod2) }, material };
 }
 
 /**
@@ -115,22 +112,6 @@ export function buildSneakerStock(ctx, S, items, name = 'sneakers') {
     meshes.push(m);
   }
   return meshes;
-}
-
-/** The hero sneakers: ONE InstancedMesh of the full model (far LOD = lod1). items as above. */
-export function buildHeroes(ctx, S, items) {
-  const full = S.full.clone(), far = S.lod.r1.clone();
-  const tile = new THREE.InstancedBufferAttribute(new Float32Array(items.length), 1);
-  items.forEach((it, i) => { tile.array[i] = it.tile; });
-  full.setAttribute('aTile', tile); far.setAttribute('aTile', tile);
-  const m = new THREE.InstancedMesh(full, S.material, items.length);
-  const col = new THREE.Color();
-  items.forEach((it, i) => { m.setColorAt(i, col.set(it.tint)); it.mesh = m; it.index = i; });
-  m.instanceColor.needsUpdate = true;
-  m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false;
-  m.name = 'footwear:heroes';
-  m.userData.items = items; m.userData.lods = [full, far]; m.userData.tileAttr = tile;
-  return m;
 }
 
 /** Recolour one sneaker instance to a catalogue colour. */

@@ -10,33 +10,46 @@ It is built to replace the 3-D store in the Imaan's website later. See **INTEGRA
 
 ## Status (read this first)
 
-Everything works:
-- 86/86 real products, cards, bag, WhatsApp order, Info pages, Go to, Tour
-- the IMAANS branding
-- the magic particles and post-processing
-- phone performance work (about 25 shader programs, about 130 draw calls, 12.8 MB build)
-- the QA suite passes
+**The floor plan now matches the real Imaan's Shoes shop** (docs/REAL-LAYOUT.md, approved by the owner):
+- a 4.90 × 6.60 m shop floor (about 32 m²) with a 3.0 m ceiling, a double glass door between two windows,
+  and the dark fluted partition at the back (the storeroom behind it is not built);
+- shoes on the left wall (two lit shoe walls and a display step), a narrow shoe shelf on the back partition and
+  the glass island in the middle; clothes on the right (the full-height double-hang clothing rail with the lit
+  logo panel beside it, the folded shelves, a short rail on the partition) and two mannequins in the left window; accessories on the counter, display step 2 and the top
+  shelves of the folded unit; the bench, the mirror, two plants and the sculpture plinth;
+- the visit starts outside on the pavement, looking up at the lit IMAANS sign, like the old store.
 
-Preview published as a private claude.ai artifact: https://claude.ai/artifact/PnARow6BRj25rspqEZhz4g
-(`dist/` in this folder is the current build).
+Side-by-side pictures of the old store and the new one from the same 7 viewpoints:
+`shots/compare/compare-sheet.jpg` (one sheet per view: `shots/compare/compare-<view>.jpg`).
 
-**The floor plan is wrong and is the next job.** The room is currently an invented 16 × 22 m shop,
-which is far too big. It must be rebuilt to the **real Imaan's Shoes store**: same dimensions, same
-floor plan, same display setup. The owner has that store as `imaans-shoe-store.zip` (their existing
-3-D store); start the next session from that zip. Keep all the systems below; only the room size
-and the placement of fixtures change.
+Everything else still works: 86/86 real products (29 shoes, 29 clothes, 28 accessories) at every quality
+tier, product cards, bag, WhatsApp order, Info pages, Go to, Tour, joystick, the IMAANS branding, the magic
+particles and bloom. The particles are sized to the real room (about 820 points at mid, was 3,900), and the
+mirror's reflection is sharper on mid (256 px capture).
+
+Numbers (2026-09-24, after the rail / particle / mirror fixes; `npm run qa` on src and on dist):
+
+| | old invented store | real shop now |
+|---|---|---|
+| draw calls (mid, busiest view) | about 130 | 92 |
+| triangles (mid) | about 500k | 208k (212k in the 360° sweep) |
+| shader programs (low / mid / high) | 24 / 25 / 26 | 23 / 25 / 27, none compiled late |
+| build (`dist/`) | 12.8 MB, 227 files | 7.46 MB, 198 files |
+| QA | 47 pass, 4 warnings | 50 pass, 0 fail, 0 warnings (src and dist); ui-test 21/21 |
+
+The owner's preview (https://claude.ai/artifact/PnARow6BRj25rspqEZhz4g) shows this build.
 
 Where the layout lives:
-- `src/core/layout.js`: `ROOM` (size), `START`, `ZONES` (every fixture area and its owner module),
-  `DEPARTMENTS`, `LIGHT_TARGETS`.
-- `src/modules/architecture/plan.js`: walls, lights and the light-map plan.
-- Each module places its fixtures from `ZONES`, with some offsets inside the module files:
-  - `apparelRails` and `apparelDisplay` for clothes and mannequins
-  - `footwear` for the shoe wall and salon
-  - `fixtures` for the accessories table, fitting rooms, lounge and checkout
-
-The last polish round was stopped part-way to save tokens. The code boots cleanly at every tier,
-and a quick QA run (boot, catalogue, UI flows) passes 18/18.
+- `src/core/layout.js`: `ROOM`, `START`, `WALK` (where you can walk), `ZONES` (every fixture, its size and
+  owner module), `LIGHT_TARGETS`, `DEPARTMENTS`, `TOUR` and `GOTO` (the Tour stops and Go to targets), and
+  `splitClothes` (which clothes go on the mannequins, shelves and rails).
+- `src/modules/architecture/`: the room, storefront, street, ceiling, all lights and the signs.
+- Each display module builds its own zones from `ZONES`:
+  - `footwear`: shoe walls 1 and 2, display step 1, the narrow shoe shelf, the glass island
+  - `apparelRails`: the clothing rail and the short rail
+  - `apparelDisplay`: the window mannequins and the folded-shelf unit (with the folded clothes)
+  - `fixtures`: the counter, display step 2 and the accessory shelves, the bench, the mirror, the plants and
+    the sculpture plinth
 
 ## Run it
 
@@ -55,6 +68,9 @@ npm run build                # → dist/ (index.html fragment + app.js + assets;
 
 ## Docs
 
+- **HANDOVER.md**: where things stand, what is left, and how to work with the owner. Read it first.
+- **docs/REAL-LAYOUT.md** (+ `docs/real-layout-plan.svg`): the real shop's measurements, approved by the owner.
+- **docs/REBUILD-MAP.md**: the zones, the `ctx` APIs the display modules use, and screenshot camera lines.
 - **CONTRACT.md**: architecture, the `ctx` API, which module owns what, the realism rules, and the
   performance budgets. Its IMAANS section at the top is the current brief.
 - **INTEGRATION.md**: how to embed the store in the Imaan's website: route, `IS.cart` bridge, events,

@@ -3,8 +3,9 @@
 The store is **IMAANS** — the physical-shop twin of the **Imaan's Shoes** website (a small family-run
 boutique on Sir Lowry Road, Woodstock, Cape Town: clothes, shoes & accessories). This 3-D store will later
 be embedded in that website, replacing its current shop experience, so it follows the website's
-structure, products and brand. The first version was built as "Maison Étoile" (see shots/*/final-*.png):
-**rebrand and finish — don't rebuild what works.**
+structure, products and brand. The first version was built as "Maison Étoile" and then rebranded; since
+2026-09-24 the room is the owner's **real shop** (docs/REAL-LAYOUT.md, approved: 4.90 × 6.60 m, ceiling 3.0 m).
+**Don't rebuild what works; keep the layout as measured.**
 
 **Content is data, never hard-coded.** The site content file we have is outdated and will be replaced by a
 newer one (re-import: `node tools/imaans-import.mjs <site folder>`; inside the website the live content is
@@ -24,10 +25,17 @@ opening hour comes from `ctx.catalog` / `ctx.brand` (src/core/catalog.js; data i
   ('about' | 'size-guide' | 'shipping-delivery' | 'returns' | 'faq' | 'visit').
 * Product photos: `assets/products/<slug>.webp|svg` (`ctx.catalog.imageUrl(p, ctx.assets.base)`).
 
-**Departments = the website nav** (`layout.DEPARTMENTS`): **Clothes** (left side), **Shoes** (the back-wall
-shoe salon — the hero department: it is Imaan's *Shoes*), **Accessories** (right: accessories table +
-checkout displays), **The Spring Edit** plinth (their current promo — use `ctx.brand.promos`), windows,
-fitting rooms & lounge. Each department gets clear signage in the brand style.
+**Departments = the website nav** (`layout.DEPARTMENTS`), placed as in the real shop:
+* **Shoes** (the hero department: it is Imaan's *Shoes*): shoe walls 1 and 2 and display step 1 on the LEFT
+  wall, the narrow shoe shelf on the back partition, the glass island in the middle.
+* **Clothes**: the clothing rail and the folded shelves (lower two shelves) on the RIGHT wall, the short rail
+  on the partition, two mannequins in the left window.
+* **Accessories**: the counter top (by the door, right), display step 2 and the top three shelves of the
+  folded unit (right wall).
+* **Windows**: the two window mannequins, seen from the pavement.
+
+The real shop has no promo plinth, fitting rooms or lounge; don't add them. The Tour (10 stops, as in the old
+store) and the Go to list are data in `layout.TOUR` / `layout.GOTO`; modules add no hotspots.
 
 **Brand look.** Wordmark **IMAANS** in wide classical serif capitals (Trajan/Cinzel feel) with the small gold
 crown above it (`drawCrown`, `goldGradient` in catalog.js; assets/brand/logo.svg), "SHOES & CLOTHING" in
@@ -35,14 +43,17 @@ spaced sans caps, slogan "Step into style. Live confidently." Colours: black #1b
 #b08d57 with the logo gradient #f6dd8c → #d9ab48 → #a97a1f, warm ivory #faf7f2, border #e8e3da, sale red
 #b4342a. LOOK at assets/brand/campaign-clothing.webp, campaign-shoes.webp and banner.webp: a modern
 dark-luxe boutique — charcoal/black walls and joinery, black steel rails, warm spotlights, pale stone
-plinths, gold crown. Bring that brand to life while keeping the store warm, bright and inviting:
-warm-ivory plaster + oak floor + charcoal/black feature walls and joinery + black steel + gold/brass
-accents. Remove: pink neon, bottle green, "Maison Étoile", "Nouvelle Saison" / French copy.
+plinths, gold crown. The room itself follows the real shop (docs/REAL-LAYOUT.md, colours in
+`layout.PALETTE.shop*`): warm-ivory wall panels, light polished marble floor, dark espresso/bronze joinery with
+warm LED shelf lips, a dark fluted back partition, ivory satin counter / steps / island body, black metal and
+glass, a black leather bench, gold accents; the fascia outside is black with the lit gold logo. No pink neon,
+bottle green, "Maison Étoile", "Nouvelle Saison" or French copy.
 Canvas text uses `ctx.fonts.display` / `ctx.fonts.sans` (the ui loads the brand webfonts in setup()).
 
 **Shader-program budget (phones compile every program on first view — 100+ programs = a multi-second
-freeze on an iPhone).** The full scene currently compiles ~141 programs; the target is **≤ 60 total**
-(architecture ≤ 12, footwear ≤ 10, apparelRails+apparelDisplay ≤ 14, fixtures ≤ 12, magic ≤ 4, ui 0).
+freeze on an iPhone).** The target is **≤ 60 total** (architecture ≤ 12, footwear ≤ 10,
+apparelRails+apparelDisplay ≤ 14, fixtures ≤ 12, magic ≤ 4, ui 0). Today the whole scene compiles 23 (low) /
+25 (mid) / 27 (high) programs, none after 'ready'.
 Reuse library materials, merge material variants (use vertex colours / instanceColor / one atlas texture
 instead of many near-identical materials), avoid one-off onBeforeCompile variants. Measure with
 `--stats` (`stats.programs`): run `--modules architecture` alone, then `--modules architecture,<yours>` —
@@ -108,7 +119,7 @@ architecture's environment/background). This group is what per-module stats meas
 | `assets` | `model(id)` (fresh copy), `gltf(id)`, `flatten(id, variant?)` → `[{name,geometry,material}]` for instancing, `variantNames(id)`, `applyVariant(id,obj,name)`, `texture(path,opts)`, `manifest()` |
 | `colliders` | `addBox(cx,cz,w,d,rotY)`, `addCircle(x,z,r)` — register EVERY floor-standing thing people could walk into |
 | `interact` | `add(object, info)` — info `{title, subtitle, price, tag, colorways:[{name, swatch:'#hex', apply()}], actions:[{label, run()}], onTap(hit)}` or `(hit) => info` (InstancedMesh: `hit.instanceId`) |
-| `hotspots` | `add({id, label, pos:[x,y,z], look:[x,y,z], order})` — a tour stop for your zone(s) |
+| `hotspots` | `add({id, label, pos:[x,y,z], look:[x,y,z], order})`, `list` — the ui registers every Tour / Go to stop from `layout.TOUR` / `layout.GOTO`; display modules add none (rename a stop in `ready()` via `list`) |
 | `fx` | `burst(point:Vector3, {color, count})`, `sparkle(object)`, `setMagic(0..1)` — provided by magic |
 | `ui` | `toast(msg)`, `showCard(info, hit)`, `hideCard()`, `setLoading(f,label)` — provided by ui |
 | `onUpdate(fn(dt,t))`, `onResize(fn(w,h))`, `onReady(fn)` | hooks. Keep per-frame work tiny; nothing O(n) over hundreds of objects per frame |
@@ -116,12 +127,29 @@ architecture's environment/background). This group is what per-module stats meas
 | `requestShadowUpdate()` | shadow maps are baked ONCE after build (static scene). Call after moving a caster. |
 | `time`, `controlsEnabled`, `isMobile`, `shotMode` | |
 
-## Floor plan (authoritative: `src/core/layout.js`)
-Room x ∈ [-8, 8], z ∈ [-11, 11], ceiling 4.6 m. Viewer starts at (0, 1.62, 8.4) looking toward -z.
-**+x = viewer's right.** Storefront glass + doors at z = +11, sneaker wall on the back wall z = -11.
-Each zone in `ZONES` names exactly one owner. Build only in your zones; keep the central aisle
-(x ∈ [-0.9, 0.9]) and ≥ 1.1 m walkways clear. Real-world dimensions everywhere (hanger 0.42 m wide,
-rail 1.45–1.9 m high, table 0.75–0.92, bench seat 0.45, counter 1.0, shoe length 0.27–0.29 m, adult
+## Floor plan and zone ownership (authoritative: `src/core/layout.js`; measurements: docs/REAL-LAYOUT.md)
+Shop floor x ∈ [-2.45, 2.45], z ∈ [-2.2, 4.4], ceiling 3.0 m (bulkhead 2.66 m over z 2.9…4.4). **+x = viewer's
+right**, the viewer walks in toward -z. Storefront glass + open double door at z = +4.4, the dark fluted
+partition at z = -2.2 (the storeroom behind it is not built). The visit starts outside on the pavement at
+(0, 1.62, 7.74) looking up at the fascia sign (0, 2.18, 4.4). Where people can walk: `layout.WALK` (pavement,
+door opening, shop floor; player radius 0.28) plus every fixture's collider.
+
+Each zone in `ZONES` names exactly one owner. Build only in your zones, from the zone's numbers (never re-type
+them), and keep `centralAisle` (x -0.4…0.8, z 1.8…4.4) clear. Zone fields and helper APIs: docs/REBUILD-MAP.md.
+
+| owner | zones (what the real shop has there) |
+|---|---|
+| architecture | `storefront`, `entrance`, `pavement`, `partition` (staff door), `signage` (fascia logo, logo panel inside), `ceiling` (bulkhead, tracks, light panel over the island, 3 pendants, uplight) + ALL lights and the environment map |
+| footwear | `shoeWall1` (left, 36), `shoeStep1` (left, 6), `shoeWall2` (left, 36), `shoeShelfBack` (partition, 16), `glassIsland` (centre, 10): 104 shoe spots |
+| apparelRails | `clothingRail` (right wall, 14 garments), `shortRail` (partition, 6) |
+| apparelDisplay | `windowMannequins` (2 outfits, left window), `foldedShelves` (right wall: the unit + 10 folded clothes on shelves 0-1) |
+| fixtures | `counter` (≈10 accessories), `accStep` (display step 2, 6), `accShelves` (shelves 2-4 of the folded unit, 15), `bench`, `mirror`, `plants`, `sculpturePlinth` |
+| magic | no zone: particles over the whole shop, the island vortex, the fascia-logo shimmer, post-processing |
+| ui | no zone: HUD, cards, bag, Info pages, Go to and Tour (from `layout.TOUR` / `layout.GOTO`) |
+
+Clothes are shared out by `layout.splitClothes` (2 mannequins · 10 folded · 20 hanging); shoes and accessories
+give every catalogue product a spot before any repeat. Real-world dimensions everywhere (hanger 0.42 m wide,
+rail 1.45–1.9 m high, table 0.75–0.92, bench seat 0.45, counter 1.05, shoe length 0.27–0.29 m, adult
 mannequin 1.8 m, shelves ≥ 0.3 m deep).
 
 ## Look & realism bible
@@ -138,8 +166,10 @@ mannequin 1.8 m, shelves ≥ 0.3 m deep).
   architecture in an `onReady` hook — metals and glossy surfaces rely on it.
 
 ## Performance budgets (the scene must run smoothly on an iPhone 8)
-Whole scene, mid tier, typical view: **≤ 220 draw calls, ≤ 700k triangles, ≤ 45 shader programs.**
-Per module (measured by `--stats` → `modstats`, from the start view AND your zone view):
+Whole scene, mid tier, typical view: **≤ 220 draw calls, ≤ 700k triangles, ≤ 45 shader programs** (the QA
+limits). The real shop is small, so it must cost clearly less than the old invented store (≈ 130 calls / ≈ 500k
+triangles). Today at mid: 92 draw calls at most (start view), 208k triangles (212k in the 360° sweep), 25
+programs. Per module ceilings (measured by `--stats` → `modstats`, from the start view AND your zone view):
 
 | module | draw calls | triangles |
 |---|---|---|
@@ -168,7 +198,7 @@ phone (≈ 0.3 s on this machine).
 ## Testing — the harness
 ```
 node tools/shot.mjs --modules architecture,<yours> --out shots/<yours> --stats \
-     --cams "wide:0,1.62,8.4,0,1.45,-4;zone:<px,py,pz,tx,ty,tz>" --size 390x844 --tier mid
+     --cams "start:0,1.62,7.74,0,2.18,4.4;zone:<px,py,pz,tx,ty,tz>" --size 390x844 --tier mid
 ```
 Then **look** at every PNG with the Read tool and critique it like an art director: does it read as a
 real, high-end store at a glance? Scale right? Anything floating, intersecting, clipped, too dark,
@@ -190,6 +220,10 @@ iterations, `--dpr 2` for final checks. Other modules may still be stubs while y
 | `vase` | glass vase with flowers | 0.2 m tall, 7k tris |
 | `plant` | potted plant | 0.84 m tall, 17k tris |
 | `corset` | leather corset | bbox is 0.058 m tall — scale ×≈7.5 to a real 0.44 m |
+
+The real shop ships only `shoe`, `shoe-lod`, `mannequin-knitdress`, `mannequin-street`, `fixtures-plant` and
+`fixtures-sunglasses` (the last two are made from `plant` / `sunglasses` by `tools/fixtures-lod.mjs`). The sofa,
+chairs, vase, watch and corset are not used any more.
 Credits are in the manifest; the ui shows them.
 
 ## Your report (final message)

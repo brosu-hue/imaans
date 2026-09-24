@@ -19,16 +19,13 @@ export function orientTo(pos, look, pitchMax) {
 
 export function createNav(ctx, opts) {
   const { layout, colliders } = ctx;
-  const ROOM = layout.ROOM;
+  const B = layout.WALK_BOUNDS;            // grid covers the pavement, the door and the shop floor
   const R = (layout.PLAYER_RADIUS || 0.28) + MARGIN;
-  // walkable rectangle — mirrors the clamp in colliders.resolve()
-  const WX0 = ROOM.minX + 0.35 + R - MARGIN, WX1 = ROOM.maxX - 0.35 - R + MARGIN;
-  const WZ0 = ROOM.minZ + 0.6 + R - MARGIN, WZ1 = ROOM.maxZ - 0.35 - R + MARGIN;
-  const NX = Math.ceil((ROOM.maxX - ROOM.minX) / CELL), NZ = Math.ceil((ROOM.maxZ - ROOM.minZ) / CELL);
+  const NX = Math.ceil((B.maxX - B.minX) / CELL), NZ = Math.ceil((B.maxZ - B.minZ) / CELL);
   let grid = null, gridKey = '';
 
   function blockedAt(x, z, r = R) {
-    if (x < WX0 || x > WX1 || z < WZ0 || z > WZ1) return true;
+    if (!layout.inWalk(x, z, r)) return true;   // mirrors the clamp in colliders.resolve()
     for (const c of colliders.circles) { const dx = x - c.x, dz = z - c.z, m = c.r + r; if (dx * dx + dz * dz < m * m) return true; }
     for (const b of colliders.boxes) {
       const dx = x - b.cx, dz = z - b.cz;
@@ -45,8 +42,8 @@ export function createNav(ctx, opts) {
     for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++) grid[j * NX + i] = blockedAt(cx(i), cz(j)) ? 1 : 0;
     return grid;
   }
-  const cx = (i) => ROOM.minX + (i + 0.5) * CELL, cz = (j) => ROOM.minZ + (j + 0.5) * CELL;
-  const ci = (x) => clamp(Math.floor((x - ROOM.minX) / CELL), 0, NX - 1), cj = (z) => clamp(Math.floor((z - ROOM.minZ) / CELL), 0, NZ - 1);
+  const cx = (i) => B.minX + (i + 0.5) * CELL, cz = (j) => B.minZ + (j + 0.5) * CELL;
+  const ci = (x) => clamp(Math.floor((x - B.minX) / CELL), 0, NX - 1), cj = (z) => clamp(Math.floor((z - B.minZ) / CELL), 0, NZ - 1);
 
   function nearestFree(i, j) {
     const g = ensureGrid();

@@ -8,7 +8,7 @@
 // |φ| ≥ acos((T/h)^(1/q)), so the opening edge is a clean grid column (no staircase). Open stations
 // get a lining (inner offset shell) and a rolled rim. Soles / heels are extruded from the outline.
 //
-// Output attributes: position, normal, uv (metres), uv1 (brand atlas: prints / textiles, else the white
+// Output attributes: position, normal, uv (metres), uv1 (print atlas: prints / textiles, else the white
 // block), color (rgb), aTint = tint + 2·surf: tint ∈ [0,1] (1 = takes the product colour, 0 = keeps its
 // vertex colour: linings, soles, elastic, top-lifts), surf = surface class read by the shoe material's
 // patch (SURF below: calf · patent · suede · gold metal · rubber · satin rubber · textile).

@@ -62,6 +62,9 @@ export async function setup(ctx) {
   };
   const hud = createHud(ctx, handlers);
   const nav = createNav(ctx);
+  // Tour stops + Go to targets are data (layout.TOUR / layout.GOTO): the 10 stops of the owner's old store
+  // and one or more targets per department, framed on the real fixtures. Display modules add no hotspots.
+  for (const h of [...(ctx.layout.TOUR || []), ...(ctx.layout.GOTO || [])]) ctx.hotspots.add({ ...h });
 
   // ---------------------------------------------------------------- picking
   const raycaster = new THREE.Raycaster();
@@ -106,7 +109,8 @@ export async function setup(ctx) {
   }
   function stopFlight(reason) { if (nav.active) nav.stop(reason); }
   function startTour() {
-    const list = handlers.hotspots();
+    const all = handlers.hotspots(), tourList = all.filter(h => h.tour);
+    const list = tourList.length ? tourList : all;
     if (!list.length) { hud.toast('The tour is still being rehearsed — try again in a moment'); return; }
     stopFlight('replaced');
     hud.hideCard(); hud.closeSheets(); hud.dismissHint();
@@ -282,9 +286,10 @@ export async function setup(ctx) {
 }
 
 // ------------------------------------------------------------------ departments for "Go to"
-// Groups the registered hotspots into the website's departments (layout.DEPARTMENTS): a stop belongs to
-// the department whose zone lies nearest to the point it looks at. Names/descriptions from ctx.brand.
-const GROUPS = ['clothes', 'shoes', 'accessories', 'newIn', 'services', 'checkout', 'welcome'];
+// Groups the registered hotspots into the website's departments: by the stop's own `dept` (layout.TOUR /
+// layout.GOTO), else the department (layout.DEPARTMENTS) whose zone lies nearest to the point it looks at.
+// Names/descriptions from ctx.brand.
+const GROUPS = ['welcome', 'shoes', 'clothes', 'accessories', 'checkout', 'around'];
 const BY_ID = { entrance: 'welcome', windows: 'welcome' };
 function zoneDist(z, x, y) {
   let x0, x1, z0, z1;
@@ -301,10 +306,10 @@ function departments(ctx, stops) {
   const { DEPARTMENTS = {}, ZONES = {} } = ctx.layout;
   const brandDept = (id) => (ctx.brand.departments || []).find(d => d && d.id === id) || null;
   const zoneGroup = [];
-  for (const [id, d] of Object.entries(DEPARTMENTS)) for (const zn of d.zones || []) if (ZONES[zn]) zoneGroup.push([zn === 'checkout' ? 'checkout' : id === 'windows' ? 'welcome' : id, ZONES[zn]]);
+  for (const [id, d] of Object.entries(DEPARTMENTS)) for (const zn of d.zones || []) if (ZONES[zn]) zoneGroup.push([zn === 'counter' ? 'checkout' : id === 'windows' ? 'welcome' : id, ZONES[zn]]);
   const bucket = {};
   for (const h of stops) {
-    let g = BY_ID[h.id];
+    let g = h.dept || BY_ID[h.id];
     if (!g) {
       const pt = Array.isArray(h.look) ? h.look : h.pos;
       let best = Infinity;
@@ -313,13 +318,11 @@ function departments(ctx, stops) {
     }
     (bucket[g] = bucket[g] || []).push(h);
   }
-  const promo = (ctx.brand.promos || [])[0] || {};
   const nameOf = {
     clothes: (brandDept('clothes') || {}).name || (DEPARTMENTS.clothes || {}).name || 'Clothes',
     shoes: (brandDept('shoes') || {}).name || (DEPARTMENTS.shoes || {}).name || 'Shoes',
     accessories: (brandDept('accessories') || {}).name || (DEPARTMENTS.accessories || {}).name || 'Accessories',
-    newIn: (DEPARTMENTS.newIn || {}).name || 'New in', services: (DEPARTMENTS.services || {}).name || 'Fitting rooms & lounge',
-    checkout: 'Checkout', welcome: 'Entrance & windows',
+    checkout: 'Checkout', welcome: 'Entrance', around: 'Around the shop',
   };
   const out = [];
   for (const gid of GROUPS.concat(Object.keys(bucket).filter(k => !GROUPS.includes(k)))) {
@@ -329,7 +332,6 @@ function departments(ctx, stops) {
     const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
     const stopsOut = list.map(h => Object.assign(Object.create(h), { short: cap(strip(h.label || h.id)), src: h }));
     const sub = ['clothes', 'shoes', 'accessories'].includes(gid) ? ((brandDept(gid) || {}).description || '')
-      : gid === 'newIn' ? (promo.headline || promo.sub || list[0].label || '')
       : [cap(strip(list[0].label || list[0].id))].filter(l => l && l.toLowerCase() !== name.toLowerCase()).join('');
     out.push({ id: gid, name, sub, stops: stopsOut });
   }

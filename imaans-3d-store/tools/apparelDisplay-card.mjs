@@ -22,7 +22,7 @@ await p.waitForTimeout(2500);
 const res = await p.evaluate(async (fi) => {
   const c = window.__ctx, A = window.__apparelDisplay, cam = c.camera;
   window.__ui.stopFlight && window.__ui.stopFlight('x');
-  window.__setCam(1.75, 1.62, 1.35, 0, 1.1, -2.15); cam.updateMatrixWorld();
+  window.__setCam(0.3, 1.62, 2.2, -1.4, 1.1, 3.9); cam.updateMatrixWorld();
   const r = A.figs.records[fi];
   const v = r.centre.clone().setY(r.pivot.y + 1.1).project(cam), rc = c.renderer.domElement.getBoundingClientRect();
   const hit = window.__ui.pick(rc.left + (v.x + 1) / 2 * rc.width, rc.top + (1 - v.y) / 2 * rc.height);

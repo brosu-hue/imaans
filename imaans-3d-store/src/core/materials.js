@@ -376,7 +376,8 @@ export function createMaterials(ctx) {
     const cc = high && f.ccHigh ? f.ccHigh : 0;
     if (low || (!f.sheen && !cc)) {
       m = new THREE.MeshStandardMaterial({ color: col, roughness: rough, metalness: 0, side });
-      if (low && f.sheen >= 0.3) { m.userData.fabricRim = 0.5 + 1.1 * f.sheen; m.onBeforeCompile = lowSheenPatch; }
+      // every sheen fabric gets the rim (gentler below 0.3) → cotton / denim / linen share ONE low program
+      if (low && f.sheen > 0) { m.userData.fabricRim = f.sheen >= 0.3 ? 0.5 + 1.1 * f.sheen : 2 * f.sheen; m.onBeforeCompile = lowSheenPatch; }
     } else {
       m = new THREE.MeshPhysicalMaterial({
         color: col, roughness: rough, metalness: 0, side,

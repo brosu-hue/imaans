@@ -1,6 +1,7 @@
-// footwear — "shoe banks": every procedural shoe of one wall section (or of the salon) baked into ONE
-// geometry (per LOD) → one draw call for 20–30 different styles. The bank is an InstancedMesh with a single
-// identity instance so it shares the shoe program with the boxes / try-on floaters. Product colours are
+// footwear — "shoe banks": every procedural shoe of one fixture group (a wall, the narrow shelf, the island) baked
+// into ONE geometry (per LOD) → one draw call for 20–40 different styles. The bank is an InstancedMesh with a single
+// identity instance so it shares the shoe program with the try-on floaters. An item with `lite: true` (a floor or
+// top tier on the mid tier) uses the lite geometry in every LOD. Product colours are
 // baked into the vertex colours (base colour × mix(1, product, tint)); recolouring a pair rewrites only its
 // vertex range, "try it on" collapses the range while a floater flies, raycasts map faces back to items.
 import * as THREE from 'three';
@@ -8,17 +9,18 @@ import * as THREE from 'three';
 const _m = new THREE.Matrix4(), _n = new THREE.Matrix3(), _v = new THREE.Vector3(), _c = new THREE.Color();
 
 export class ShoeBank {
-  /** geoOf(style, print, lite) → cached style geometry; lods = [false] or [false, true] (full, lite). */
+  /** geoOf(style, print, lite, mirror) → cached style geometry; lods = [true] (lite only) or [false, true] (full, lite). */
   constructor(name, material, geoOf, lods = [false, true]) {
     this.name = name; this.material = material; this.geoOf = geoOf; this.lods = lods;
     this.items = []; this.level = 0; this.mesh = null; this.geos = [];
   }
   add(item) { this.items.push(item); item.bank = this; return item; }
+  _src(it, lite) { return this.geoOf(it.style, it.print, lite || !!it.lite, it.mirror); }
 
   build() {
     this.geos = this.lods.map((lite, L) => {
       let nv = 0, ni = 0;
-      const src = this.items.map(it => this.geoOf(it.style, it.print, lite, it.mirror));
+      const src = this.items.map(it => this._src(it, lite));
       src.forEach(g => { nv += g.attributes.position.count; ni += g.index.count; });
       const G = {
         position: new Float32Array(nv * 3), normal: new Float32Array(nv * 3), uv: new Float32Array(nv * 2),
@@ -87,7 +89,7 @@ export class ShoeBank {
     it.color = hex;
     const printChanged = print !== it.print; it.print = print;
     this.lods.forEach((lite, L) => {
-      const src = this.geoOf(it.style, it.print, lite, it.mirror), geo = this.geos[L];
+      const src = this._src(it, lite), geo = this.geos[L];
       this._bakeColour(geo, it, L, src);
       const names = ['color'];
       if (printChanged && src.attributes.uv1.count === it.ranges[L].vc) { geo.attributes.uv1.array.set(src.attributes.uv1.array, it.ranges[L].v0 * 2); names.push('uv1'); }
@@ -104,7 +106,7 @@ export class ShoeBank {
     });
   }
   show(it) {
-    this.lods.forEach((lite, L) => { this._bakeXform(this.geos[L], it, L, this.geoOf(it.style, it.print, lite, it.mirror)); this._touch(this.geos[L], it, L, ['position', 'normal']); });
+    this.lods.forEach((lite, L) => { this._bakeXform(this.geos[L], it, L, this._src(it, lite)); this._touch(this.geos[L], it, L, ['position', 'normal']); });
   }
   setLevel(L) { L = Math.min(L, this.geos.length - 1); if (L === this.level) return; this.level = L; this.mesh.geometry = this.geos[L]; }
   /** Raycast face → item (binary search over the current LOD's triangle ranges). */

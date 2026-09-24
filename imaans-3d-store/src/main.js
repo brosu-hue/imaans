@@ -29,7 +29,7 @@ const params = new URLSearchParams(location.search);
 const shotMode = params.has('shot');
 const wanted = params.get('modules');
 const enabled = new Set(wanted ? wanted.split(',').filter(Boolean) : MODULES.map(m => m[0]));
-// Dev-only test modules (e.g. ?modules=_matlab) are imported on demand and never bundled.
+// Dev-only test modules (e.g. ?modules=ui,_uitest) are imported on demand and never bundled.
 for (const name of enabled) if (name.startsWith('_') && !MODULES.some(m => m[0] === name)) MODULES.push([name, () => import(/* @vite-ignore */ './modules/' + name + '.js')]);
 if (params.has('noui')) enabled.delete('ui');
 

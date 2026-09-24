@@ -1,12 +1,13 @@
 // DEV-ONLY (never shipped): stand-ins so the ui owner can test controls, cards, tour and collisions
-// while other modules are stubs. Load with ?modules=_uitest (bare, own floor + lights) or
-// ?modules=architecture,_uitest (on top of the real shell). Everything follows core/layout.js zones.
+// while other modules are stubs. Load with ?modules=ui,_uitest (bare, own floor + lights) or
+// ?modules=architecture,ui,_uitest (on top of the real shell). Everything follows core/layout.js ZONES
+// (the real shop). The tools read the stand-ins' viewpoints from window.__uitest.at, never re-type them.
 export async function build(ctx) {
   const { THREE, kit, layout } = ctx;
   const root = ctx.group('_uitest');
-  const { EYE, PALETTE } = layout;
+  const { EYE, PALETTE, ROOM, ZONES: Z } = layout;
   const hasArch = !!(ctx.scene.getObjectByName('architecture') && ctx.scene.getObjectByName('architecture').children.length);
-  const T = (window.__uitest = { bursts: 0, sparkles: 0, magic: null, applied: [], actions: 0, taps: 0 });
+  const T = (window.__uitest = { bursts: 0, sparkles: 0, magic: null, applied: [], actions: 0, taps: 0, at: {} });
 
   // count fx calls (magic may be a stub while testing)
   const fx = ctx.fx, ob = fx.burst, os = fx.sparkle, om = fx.setMagic;
@@ -16,42 +17,53 @@ export async function build(ctx) {
 
   const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0, ...o });
   const add = (mesh, x, y, z, ry = 0) => { mesh.position.set(x, y, z); mesh.rotation.y = ry; mesh.castShadow = mesh.receiveShadow = true; root.add(mesh); return mesh; };
+  const W = ROOM.maxX - ROOM.minX, D = ROOM.maxZ - ROOM.minZ, CZ = (ROOM.minZ + ROOM.maxZ) / 2;
 
   if (!hasArch) {
     ctx.scene.background = new THREE.Color('#1a1512');
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(16, 22), std('#8a6a4c', { roughness: 0.75 }));
-    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; root.add(floor);
-    const grid = new THREE.GridHelper(22, 22, 0x3a2e24, 0x3a2e24); grid.position.y = 0.002; root.add(grid);
-    const walls = new THREE.Mesh(new THREE.BoxGeometry(16, 4.6, 22), std('#e9e1d4', { side: THREE.BackSide }));
-    walls.position.y = 2.3; root.add(walls);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(10, 12), std('#8a6a4c', { roughness: 0.75 }));
+    floor.rotation.x = -Math.PI / 2; floor.position.z = 2.5; floor.receiveShadow = true; root.add(floor);
+    const grid = new THREE.GridHelper(12, 24, 0x3a2e24, 0x3a2e24); grid.position.set(0, 0.002, 2.5); root.add(grid);
+    const walls = new THREE.Mesh(new THREE.BoxGeometry(W, ROOM.height, D), std('#e9e1d4', { side: THREE.BackSide }));
+    walls.position.set(0, ROOM.height / 2, CZ); root.add(walls);
     root.add(new THREE.HemisphereLight('#fff4e6', '#5a4636', 1.4));
     const sun = new THREE.DirectionalLight('#ffe6c4', 1.6); sun.position.set(3, 6, 4); root.add(sun);
   }
+  const boxAt = (zone, color, h = zone.h) => {   // a zone's footprint as a plain block + its box collider
+    const m = add(new THREE.Mesh(new kit.RoundedBoxGeometry(zone.w, h, zone.d, 2, 0.02), std(color)), zone.cx, h / 2, zone.cz, zone.yaw);
+    ctx.colliders.addBox(zone.cx, zone.cz, zone.w, zone.d, zone.yaw);
+    return m;
+  };
 
-  // --- knit table (box collider) with a folded stack: a real catalogue knit whose colours recolour the stack
+  // --- the bench (box collider) with a folded stack: a real catalogue knit whose colours recolour the stack
   const cat = ctx.catalog;
-  const table = add(new THREE.Mesh(new kit.RoundedBoxGeometry(1.9, 0.78, 0.95, 2, 0.02), std('#a27a55')), -2.1, 0.39, 4.8);
-  ctx.colliders.addBox(-2.1, 4.8, 1.9, 0.95);
+  const bench = boxAt(Z.bench, '#2a2a2d');
   const stackMat = std(PALETTE.garments[5], { roughness: 0.9 });
-  const stack = add(new THREE.Mesh(new kit.RoundedBoxGeometry(0.42, 0.24, 0.32, 2, 0.03), stackMat), -2.4, 0.9, 4.8);
+  const sx = Z.bench.cx - 0.3, sy = Z.bench.h + 0.12, sz = Z.bench.cz;
+  const stack = add(new THREE.Mesh(new kit.RoundedBoxGeometry(0.42, 0.24, 0.32, 2, 0.03), stackMat), sx, sy, sz);
+  T.at.knit = { p: [sx, EYE, sz + 2.0], t: [sx, sy, sz], tap: [sx, sy + 0.02, sz] };
   // a knit with several colours and at least one sold-out size (falls back to any multi-colour product)
   const knitP = cat.all('knit').find(p => p.colours.length >= 2 && p.sizes.some(z => !z.inStock) && p.sizes.filter(z => z.inStock).length >= 2)
     || cat.products.find(p => p.colours.length >= 2 && p.sizes.length >= 3);
   stackMat.color.set(knitP.colours[0].swatch);
   const knitInfo = cat.card(knitP, { colorways: knitP.colours.map(c => ({ name: c.label, swatch: c.swatch, apply: () => { stackMat.color.set(c.swatch); T.applied.push(c.label); } })),
     onTap: () => { T.taps++; } });
-  ctx.interact.add(stack, knitInfo); ctx.interact.add(table, knitInfo);
+  ctx.interact.add(stack, knitInfo); ctx.interact.add(bench, knitInfo);
 
-  // --- accessories table (circle collider) with an action (no price → no "Add to bag")
-  const acc = add(new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.92, 48), std('#5e4330')), 2.3, 0.46, 4.8);
-  ctx.colliders.addCircle(2.3, 4.8, 0.75);
+  // --- accessories stand on the accessory step (circle collider) with an action (no price → no "Add to bag")
+  const A = Z.accStep, ar = 0.35;
+  const acc = add(new THREE.Mesh(new THREE.CylinderGeometry(ar, ar, 0.92, 40), std('#5e4330')), A.cx, 0.46, A.cz);
+  ctx.colliders.addCircle(A.cx, A.cz, ar);
+  T.at.acc = { p: [A.cx - 1.0, EYE, A.cz + 1.8], t: [A.cx, 0.7, A.cz], tap: [A.cx, 0.8, A.cz] };
   ctx.interact.add(acc, { title: 'Accessories', subtitle: 'Bags, hats, jewellery, belts and scarves — tap the pieces to try them on.', tag: 'Department',
-    actions: [{ label: 'Make it sparkle ✦', run: () => { T.actions++; ctx.fx.burst(new THREE.Vector3(2.3, 1.0, 4.8), { color: '#ffd58a', count: 60 }); } }, { label: 'Size guide', run: () => ctx.ui.showInfo('size-guide') }] });
+    actions: [{ label: 'Make it sparkle ✦', run: () => { T.actions++; ctx.fx.burst(new THREE.Vector3(A.cx, 1.0, A.cz), { color: '#ffd58a', count: 60 }); } }, { label: 'Size guide', run: () => ctx.ui.showInfo('size-guide') }] });
 
-  // --- hero plinth with 3 "mannequins" as one InstancedMesh + per-instance info (hit.instanceId):
-  //     0 = a product on sale (wasPrice), 1 = an OLDER info object without catalogue fields, 2 = a "complete the look" card
-  add(new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 0.3, 64), std('#efe9e1', { roughness: 0.3 })), 0, 0.15, -2);
-  ctx.colliders.addCircle(0, -2, 1.5);
+  // --- the glass island as a round plinth (circle collider) with 3 "mannequins" as one InstancedMesh +
+  //     per-instance info (hit.instanceId): 0 = a product on sale (wasPrice), 1 = an OLDER info object
+  //     without catalogue fields, 2 = a "complete the look" card. The figures stand in a row across x.
+  const I = Z.glassIsland, pr = 0.75;
+  add(new THREE.Mesh(new THREE.CylinderGeometry(pr, pr, 0.3, 48), std('#efe9e1', { roughness: 0.3 })), I.cx, 0.15, I.cz);
+  ctx.colliders.addCircle(I.cx, I.cz, pr);
   const saleP = cat.products.find(p => p.salePriceCents != null && p.inStock && p.image) || cat.products[0];
   const lookPs = ['dress', 'heel', 'bag'].map(k => cat.all(k).find(p => p.inStock && p.sizes.some(z => z.inStock)) || cat.pick(k, 'uitest-look'));
   const lookInfo = {
@@ -66,18 +78,22 @@ export async function build(ctx) {
     Object.assign(lookInfo, { c: '#1b1b1f' }),
   ];
   T.cards = { knit: knitP.id, sale: saleP.id, look: lookPs.map(p => p.id) };
-  const man = kit.instanced(new THREE.CapsuleGeometry(0.2, 1.3, 6, 16), std('#ffffff', { roughness: 0.8 }),
-    [[-0.7, -1.7], [0.1, -2.5], [0.8, -1.6]].map(([x, z], i) => ({ position: [x, 1.15, z], color: looks[i].c })), { castShadow: true });
+  const figX = [-0.45, 0, 0.45].map(dx => I.cx + dx);
+  const man = kit.instanced(new THREE.CapsuleGeometry(0.17, 1.3, 6, 16), std('#ffffff', { roughness: 0.8 }),
+    figX.map((x, i) => ({ position: [x, 1.15, I.cz], color: looks[i].c })), { castShadow: true });
   root.add(man);
   ctx.interact.add(man, (hit) => looks[hit.instanceId] || null);
+  // front views (over the bench): 0 sale, 1 older info, 2 look
+  T.at.figs = figX.map(x => ({ p: [x, EYE, I.cz + 2.4], t: [x, 1.1, I.cz], tap: [x, 1.2, I.cz] }));
 
-  // --- shoe wall slab with instanced "shoes" → real shoes; three colour hooks recorded in T.applied
-  add(new THREE.Mesh(new kit.RoundedBoxGeometry(12.4, 3.1, 0.4, 2, 0.02), std('#1d1d1f')), 0, 1.9, -10.8);
-  ctx.colliders.addBox(0, -10.8, 12.4, 0.4);
-  const shoes = [];
-  for (let i = 0; i < 9; i++) for (let j = 0; j < 4; j++) shoes.push({ position: [-5 + i * 1.25, 0.8 + j * 0.7, -10.45], color: PALETTE.garments[(i * 4 + j) % 17] });
-  const shoeMesh = kit.instanced(new kit.RoundedBoxGeometry(0.28, 0.12, 0.2, 1, 0.02), std('#ffffff', { roughness: 0.5 }), shoes);
+  // --- shoe wall 2 as a slab with instanced "shoes" → real shoes; three colour hooks recorded in T.applied
+  const S = Z.shoeWall2;
+  boxAt(S, '#1d1d1f');
+  const face = S.cx + S.d / 2 + 0.07, shoes = [];
+  for (let i = 0; i < 6; i++) for (let j = 0; j < 5; j++) shoes.push({ position: [face, 0.3 + i * 0.4, S.cz + (j - 2) * 0.38], color: PALETTE.garments[(i * 5 + j) % 17] });
+  const shoeMesh = kit.instanced(new kit.RoundedBoxGeometry(0.2, 0.12, 0.28, 1, 0.02), std('#ffffff', { roughness: 0.5 }), shoes);
   root.add(shoeMesh);
+  T.at.wall = { p: [-0.75, EYE, S.cz - 0.3], t: [face, 1.5, S.cz], tap: [face, 1.5, S.cz] };
   const shoeKinds = ['sneaker', 'boot', 'heel', 'loafer', 'sandal', 'flat'];
   ctx.interact.add(shoeMesh, (hit) => {
     const id = hit.instanceId ?? 0, p = cat.pick(shoeKinds[id % shoeKinds.length], 'uitest-wall-' + id);
@@ -85,25 +101,10 @@ export async function build(ctx) {
       actions: [{ label: 'Size guide', run: () => ctx.ui.showInfo('size-guide') }] });
   });
 
-  // --- a sofa-ish block in the lounge + a counter at checkout (colliders)
-  add(new THREE.Mesh(new kit.RoundedBoxGeometry(0.9, 0.8, 2.2, 3, 0.1), std('#d8a7a1', { roughness: 0.9 })), 7.3, 0.4, 0.8);
-  ctx.colliders.addBox(7.3, 0.8, 0.9, 2.2);
-  add(new THREE.Mesh(new kit.RoundedBoxGeometry(0.7, 1.0, 3.4, 2, 0.02), std('#5e4330')), 5.7, 0.5, 6.1);
-  ctx.colliders.addBox(5.7, 6.1, 0.7, 3.4);
-  // rails on the left (colliders only matter for the tour planner)
-  for (const cz of [-3.0, 0.9]) { add(new THREE.Mesh(new kit.RoundedBoxGeometry(0.6, 1.6, 2.2, 1, 0.02), std('#6d6a75')), -4.7, 0.8, cz); ctx.colliders.addBox(-4.7, cz, 0.6, 2.2); }
+  // --- the counter and the clothing rail as plain blocks (colliders matter for the tour planner)
+  boxAt(Z.counter, '#f1ede7');
+  boxAt(Z.clothingRail, '#6d6a75', 1.6);
 
-  // --- hotspots (skip ids another module already registered)
-  const has = (id) => ctx.hotspots.list.some(h => h.id === id);
-  const hs = [
-    { id: 'entrance', label: 'Entrance', pos: [0, EYE, 8.4], look: [0, 1.45, -4], order: 0 },
-    { id: 'tables', label: 'Knit & accessory tables', pos: [0, EYE, 6.9], look: [0, 0.9, 4.8], order: 10 },
-    { id: 'rails', label: 'The rails', pos: [-2.4, EYE, -1.0], look: [-4.7, 1.2, -1.0], order: 20 },
-    { id: 'plinth', label: 'The hero plinth', pos: [1.4, EYE, 1.4], look: [0, 1.1, -2], order: 30 },
-    { id: 'sneakers', label: 'Shoes — the wall', pos: [0, EYE, -6.2], look: [0, 1.7, -11], order: 40 },
-    { id: 'lounge', label: 'The lounge', pos: [3.0, EYE, 1.2], look: [7, 0.8, 0.8], order: 50 },
-    { id: 'checkout', label: 'Checkout', pos: [3.4, EYE, 6.6], look: [5.7, 1.0, 6.1], order: 60 },
-  ];
-  for (const h of hs) if (!has(h.id)) ctx.hotspots.add(h);
-  for (const m of [...root.children]) if (m.isMesh && m.position.y < 1.5) { const cs = kit.contactShadow(1.2, 1.2, 0.35); cs.position.set(m.position.x, 0.003, m.position.z); root.add(cs); }
+  // Tour / Go to come from layout.TOUR / GOTO (registered by ui) — the stand-ins add no hotspots.
+  for (const m of [...root.children]) if (m.isMesh && m.position.y < 1.5 && m !== bench) { const cs = kit.contactShadow(1.0, 1.0, 0.35); cs.position.set(m.position.x, 0.003, m.position.z); root.add(cs); }
 }

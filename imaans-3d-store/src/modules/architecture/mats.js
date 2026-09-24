@@ -4,11 +4,11 @@
 //   std   MeshStandardMaterial  map + normalMap + roughnessMap + lightMap(uv1) + aoMap(uv1)
 //         floors, walls, ceiling, mouldings, joinery, sign boards AND the metals (brass / black steel
 //         get neutral dummy maps + a black light map, so they share the program; metalness is a uniform)
-//   gild  MeshStandardMaterial  map + emissiveMap + alphaTest, transparent — glass panes, gold vinyl,
-//         the IMAANS metal letters, decals
-//   glow  MeshBasicMaterial     map — LED lenses / globes / cove (an intensity ramp texture, see RAMP),
-//         and the painted exterior (facade, street, sky)
-//   add   MeshBasicMaterial     map, additive — sign halos, neon script, bokeh
+//   gild  MeshStandardMaterial  map + emissiveMap + alphaTest, transparent — glass panes (double-sided:
+//         the visit starts outside), the IMAANS metal letters, decals
+//   glow  MeshBasicMaterial     map — LED lenses / globes / coves / light panel (an intensity ramp texture,
+//         see RAMP), and the painted exterior (street face, pavement, street, sky)
+//   add   MeshBasicMaterial     map, additive — sign halos, exit sign, bokeh
 //   refl  MeshBasicMaterial     envMap cube, additive — faint night reflection on the storefront glass
 //
 // Environment capture: when the scene is NOT drawn through a render target, capturing it would compile
@@ -83,7 +83,7 @@ export function createArchMats(ctx, LM) {
       map: tex || white, emissiveMap: tex || white,
       color: o.color ?? '#ffffff', emissive: o.emissive ?? new THREE.Color(0, 0, 0),
       metalness: o.metalness ?? 0, roughness: o.roughness ?? 0.3,
-      transparent: true, alphaTest: 0.02, opacity: o.opacity ?? 1, depthWrite: o.depthWrite ?? false,
+      transparent: true, alphaTest: 0.02, opacity: o.opacity ?? 1, depthWrite: o.depthWrite ?? false, side: o.side ?? THREE.FrontSide,
     });
     if (o.env !== undefined) m.envMapIntensity = o.env;
     m.name = 'arch:' + name;
@@ -101,7 +101,7 @@ export function createArchMats(ctx, LM) {
     return reg(m);
   }
 
-  /** Additive unlit (halos, neon, bokeh). */
+  /** Additive unlit (halos, exit sign, bokeh). */
   function add(name, tex, color = '#ffffff') {
     const m = new THREE.MeshBasicMaterial({ map: tex, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
     m.name = 'arch:' + name;
@@ -110,51 +110,7 @@ export function createArchMats(ctx, LM) {
   }
 
   const glowMat = glow('glow', null, WARM.clone().multiplyScalar(RAMP_MAX));
-  const opalMat = reg(opal());
-  return { std, gild, glow, add, glowMat, opalMat, white, ramp, all, K };
-}
-
-/**
- * Lit opal-glass pendant globe (one tiny program, the 6 globes only). An unlit flat colour reads as a
- * white paper disc; real opal glass glows hottest where you look straight through it at the lamp and
- * falls off toward the silhouette, the brass cap shades the crown, and the glossy skin catches a small
- * glint of the ceiling light. World-space normals (the batch is merged in world space).
- */
-function opal() {
-  const m = new THREE.ShaderMaterial({
-    name: 'arch:opal',
-    uniforms: {
-      uWarm: { value: new THREE.Color(1.0, 0.8, 0.58) },
-      uCore: { value: 3.1 }, uRim: { value: 0.46 },
-    },
-    vertexShader: /* glsl */`
-      varying vec3 vN; varying vec3 vV;
-      void main() {
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vN = normalize(mat3(modelMatrix) * normal);
-        vV = cameraPosition - wp.xyz;
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }`,
-    fragmentShader: /* glsl */`
-      uniform vec3 uWarm; uniform float uCore; uniform float uRim;
-      varying vec3 vN; varying vec3 vV;
-      void main() {
-        vec3 n = normalize(vN), v = normalize(vV);
-        float f = clamp(dot(n, v), 0.0, 1.0);
-        float k = uRim + (uCore - uRim) * pow(f, 1.8);           // hot core → soft limb
-        k *= 1.0 - 0.34 * smoothstep(0.35, 0.98, n.y);            // the crown sits in the cap's shadow
-        vec3 col = uWarm * k;
-        col = mix(col, uWarm * uWarm * 0.55 * uCore, 0.18 * (1.0 - f)); // warmer, deeper tint at the rim
-        vec3 r = reflect(-v, n);                                   // glossy skin: a glint of the ceiling
-        col += vec3(1.0, 0.94, 0.86) * 1.6 * pow(max(dot(r, normalize(vec3(0.25, 1.0, 0.35))), 0.0), 90.0);
-        gl_FragColor = vec4(col, 1.0);
-        #include <tonemapping_fragment>
-        #include <colorspace_fragment>
-      }`,
-  });
-  // env capture proxy: none (the globes are tiny in a 256 px cube; hidden while the shell is captured)
-  m.userData.proxy = null;
-  return m;
+  return { std, gild, glow, add, glowMat, white, ramp, all, K };
 }
 
 /** Glow batch: the per-vertex intensity colours become ramp UVs (u = k / RAMP_MAX); colour attr dropped. */

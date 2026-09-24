@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 650" font-family="Segoe UI, Arial, sans-serif" font-size="12">
+  <rect width="860" height="650" fill="#faf7f2"/>
+  <text x="200" y="30" font-size="16" font-weight="700" fill="#1b1b1b">Imaan's Shoes: measured from your current 3-D store</text>
+  <!-- storeroom -->
+  <rect x="200" y="50" width="294" height="125" fill="#e8e3da"/>
+  <text x="215" y="120" fill="#6d6a75" font-size="13">STOREROOM (behind staff door)</text>
+  <!-- shop floor -->
+  <rect x="200" y="182" width="294" height="396" fill="#ffffff"/>
+  <!-- walls -->
+  <rect x="193" y="43" width="308" height="7" fill="#1b1b1b"/>
+  <rect x="193" y="43" width="7" height="535" fill="#1b1b1b"/>
+  <rect x="494" y="43" width="7" height="535" fill="#1b1b1b"/>
+  <!-- partition with staff-door gap -->
+  <rect x="200" y="175" width="10.7" height="7" fill="#3a2f28"/>
+  <rect x="258.7" y="175" width="235.3" height="7" fill="#3a2f28"/>
+  <path d="M258.7 182 A48 48 0 0 1 210.7 230" fill="none" stroke="#999" stroke-dasharray="3 3"/>
+  <!-- storefront -->
+  <rect x="200" y="576" width="6" height="6" fill="#1b1b1b"/><rect x="284" y="576" width="6" height="6" fill="#1b1b1b"/>
+  <rect x="404" y="576" width="6" height="6" fill="#1b1b1b"/><rect x="488" y="576" width="6" height="6" fill="#1b1b1b"/>
+  <rect x="206" y="577" width="78" height="4" fill="#9fd3e6"/><rect x="410" y="577" width="78" height="4" fill="#9fd3e6"/>
+  <rect x="290" y="577" width="114" height="4" fill="#cfeaf3" stroke="#1b1b1b" stroke-width="0.6"/>
+  <text x="222" y="600" fill="#1b1b1b">window</text><text x="316" y="600" fill="#1b1b1b" font-weight="700">DOORS</text><text x="426" y="600" fill="#1b1b1b">window</text>
+  <text x="258" y="624" fill="#1b1b1b" font-size="13" font-weight="700">STOREFRONT / STREET: you walk in here ↑</text>
+  <!-- side labels -->
+  <text transform="translate(182 380) rotate(-90)" text-anchor="middle" fill="#6d6a75">LEFT WALL (as you walk in)</text>
+  <text transform="translate(518 380) rotate(90)" text-anchor="middle" fill="#6d6a75">RIGHT WALL</text>
+
+  <g stroke="#1b1b1b" stroke-width="0.8">
+    <!-- shoes: gold -->
+    <rect x="200" y="450.9" width="21.6" height="111" fill="#d9ab48"/>
+    <rect x="200" y="382" width="48" height="48" fill="#f1ede7"/>
+    <rect x="200" y="240.7" width="21.6" height="120" fill="#d9ab48"/>
+    <rect x="273" y="182" width="42" height="21.6" fill="#d9ab48"/>
+    <rect x="338" y="272" width="42" height="84" fill="#cfeaf3"/>
+    <!-- clothes: blue -->
+    <rect x="458" y="359.5" width="36" height="87" fill="#86a8d6"/>
+    <rect x="411.7" y="182" width="42" height="24" fill="#86a8d6"/>
+    <rect x="467" y="221.5" width="27" height="63" fill="#b9a3d8"/>
+    <circle cx="245" cy="540.8" r="17" fill="#86a8d6"/>
+    <circle cx="281" cy="548" r="15" fill="#86a8d6"/>
+    <!-- counter, steps, bench, mirror -->
+    <path d="M453.1 491.8 L453.1 564.5 L494 564.5 L494 464.8 L480 464.8 Z" fill="#f1ede7"/>
+    <rect x="452" y="300.3" width="42" height="42" fill="#f1ede7"/>
+    <rect x="323" y="363.7" width="72" height="54" fill="#19191b"/>
+    <rect x="329.1" y="182" width="68.4" height="4" fill="#bfe3ff"/>
+    <rect x="222.2" y="228.2" width="42" height="21.6" fill="#8a7a66"/>
+    <circle cx="219.2" cy="212" r="10" fill="#507947"/>
+    <circle cx="455" cy="223" r="13" fill="#507947"/>
+    <rect x="306.7" y="147.8" width="168" height="27" fill="#c9bfae"/>
+    <rect x="425.2" y="50" width="55.2" height="33.6" fill="#c9bfae"/>
+    <rect x="489" y="424.6" width="5" height="66.8" fill="#b08d57"/>
+  </g>
+  <!-- numbers -->
+  <g font-weight="700" font-size="11" fill="#1b1b1b" text-anchor="middle">
+    <text x="245" y="545">1</text><text x="281" y="552">2</text>
+    <text x="211" y="510">3</text><text x="224" y="410">4</text><text x="211" y="303">5</text>
+    <text x="243" y="243">6</text><text x="219" y="216">7</text>
+    <text x="474" y="520">8</text><text x="476" y="407">11</text><text x="473" y="325">12</text>
+    <text x="481" y="257">13</text><text x="455" y="227">14</text>
+    <text x="359" y="395" fill="#faf7f2">15</text><text x="359" y="318">16</text>
+    <text x="234" y="200">17</text><text x="294" y="197">18</text><text x="363" y="198">19</text><text x="432" y="198">20</text>
+    <text x="390" y="165">22</text><text x="453" y="70">23</text><text x="478" y="460">10</text>
+  </g>
+  <!-- start camera -->
+  <circle cx="347" cy="530" r="6" fill="#b4342a"/>
+  <path d="M347 522 L341 510 M347 522 L353 510" stroke="#b4342a" stroke-width="2"/>
+  <text x="358" y="534" fill="#b4342a" font-size="11">start (you)</text>
+  <!-- scale bar -->
+  <rect x="200" y="636" width="60" height="4" fill="#1b1b1b"/><text x="266" y="641" font-size="11">1 m</text>
+  <text x="330" y="641" font-size="11" fill="#6d6a75">Shop floor 4.9 m wide × 6.6 m deep, ceiling 3.0 m</text>
+
+  <!-- legend -->
+  <g font-size="12" fill="#1b1b1b">
+    <text x="540" y="62" font-weight="700" font-size="13">Key</text>
+    <text x="540" y="84">1, 2  Two mannequins in the left window</text>
+    <text x="540" y="104">3  Shoe wall (36 shoes)</text>
+    <text x="540" y="124">4  Display step (6 shoes)</text>
+    <text x="540" y="144">5  Shoe wall (36 shoes)</text>
+    <text x="540" y="164">6  Low plinth with sculptures</text>
+    <text x="540" y="184">7  Small plant</text>
+    <text x="540" y="204">8  Counter, till, card machine</text>
+    <text x="540" y="224">      (3 pendant lights above)</text>
+    <text x="540" y="244">10  Logo panel on the wall</text>
+    <text x="540" y="264">11  Clothing rail (14 garments)</text>
+    <text x="540" y="284">12  Display step (6 items)</text>
+    <text x="540" y="304">13  Folded shelves (25 items)</text>
+    <text x="540" y="324">14  Tall plant</text>
+    <text x="540" y="344">15  Black leather bench</text>
+    <text x="540" y="364">16  Glass island (10 shoes)</text>
+    <text x="540" y="384">17  Staff door (closed)</text>
+    <text x="540" y="404">18  Narrow shoe shelf (16 shoes)</text>
+    <text x="540" y="424">19  Mirror with light halo</text>
+    <text x="540" y="444">20  Short clothing rail (6)</text>
+    <text x="540" y="464">22, 23  Storeroom shelves, sink</text>
+    <rect x="540" y="486" width="14" height="10" fill="#d9ab48"/><text x="560" y="495">shoes</text>
+    <rect x="610" y="486" width="14" height="10" fill="#86a8d6"/><text x="630" y="495">clothes</text>
+    <rect x="690" y="486" width="14" height="10" fill="#b9a3d8"/><text x="710" y="495">folded</text>
+  </g>
+</svg>
